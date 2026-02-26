@@ -60,6 +60,19 @@ from nyx_light.modules.kpi import KPIDashboard
 
 # Moduli — Grupa D extra
 from nyx_light.modules.novcani_tokovi import NovcanitTokoviEngine
+from nyx_light.modules.gfi_xml import GFIXMLGenerator
+
+# Moduli — Grupa C extra
+from nyx_light.modules.intrastat import IntrastatEngine
+
+# Moduli — Grupa B+ extra
+from nyx_light.modules.kadrovska import KadrovskaEvidencija
+
+# Moduli — Grupa F
+from nyx_light.modules.fakturiranje import FakturiranjeEngine
+
+# Moduli — Grupa G extra
+from nyx_light.modules.likvidacija import LikvidacijaEngine
 
 # Moduli — Grupa F
 from nyx_light.modules.deadlines import DeadlineTracker
@@ -138,8 +151,21 @@ class NyxLightApp:
         # ── Grupa G — KPI ──
         self.kpi = KPIDashboard()
 
-        # ── Grupa D extra — Novčani tokovi ──
+        # ── Grupa D extra — Novčani tokovi, GFI XML ──
         self.novcani_tokovi = NovcanitTokoviEngine()
+        self.gfi_xml = GFIXMLGenerator()
+
+        # ── Grupa C extra — Intrastat ──
+        self.intrastat = IntrastatEngine()
+
+        # ── Grupa B+ extra — Kadrovska ──
+        self.kadrovska = KadrovskaEvidencija()
+
+        # ── Grupa F — Fakturiranje ──
+        self.fakturiranje = FakturiranjeEngine()
+
+        # ── Grupa G extra — Likvidacija ──
+        self.likvidacija = LikvidacijaEngine()
 
         # ── Grupa F — Rokovi ──
         self.deadlines = DeadlineTracker()
@@ -482,6 +508,74 @@ class NyxLightApp:
         return self.novcani_tokovi.to_dict(nti)
 
     # ════════════════════════════════════════════════════
+    # D6: GFI XML ZA FINA
+    # ════════════════════════════════════════════════════
+
+    def generate_gfi_xml(self, client_id: str, godina: int,
+                          bilanca: Dict, rdg: Dict,
+                          novcani_tokovi: Dict = None) -> Dict[str, Any]:
+        """Generiraj GFI XML za predaju na FINA RGFI."""
+        client = self.registry.get(client_id)
+        return self.gfi_xml.generate(
+            oib=client.oib if client else "",
+            naziv=client.naziv if client else "",
+            godina=godina,
+            kategorija=client.kategorija if client else "mikro",
+            bilanca=bilanca, rdg=rdg,
+            novcani_tokovi=novcani_tokovi,
+        )
+
+    # ════════════════════════════════════════════════════
+    # C6: INTRASTAT
+    # ════════════════════════════════════════════════════
+
+    def check_intrastat_obligation(self, primitak_ytd: float = 0,
+                                    otprema_ytd: float = 0) -> Dict[str, Any]:
+        return self.intrastat.check_obligation(primitak_ytd, otprema_ytd)
+
+    def create_intrastat(self, client_id: str, godina: int, mjesec: int,
+                          vrsta: str, stavke: List) -> Dict[str, Any]:
+        client = self.registry.get(client_id)
+        prijava = self.intrastat.create_prijava(
+            godina, mjesec, vrsta, stavke,
+            oib=client.oib if client else "",
+            naziv=client.naziv if client else "",
+        )
+        return self.intrastat.to_dict(prijava)
+
+    # ════════════════════════════════════════════════════
+    # F3: FAKTURIRANJE USLUGA UREDA
+    # ════════════════════════════════════════════════════
+
+    def create_service_invoice(self, client_id: str,
+                                broj_zaposlenih: int = 0,
+                                extra_items: List = None) -> Dict[str, Any]:
+        client = self.registry.get(client_id)
+        if not client:
+            return {"error": "Klijent nije pronađen"}
+        racun = self.fakturiranje.create_monthly_invoice(
+            client_id, client.naziv, client.oib,
+            kategorija=client.kategorija,
+            broj_zaposlenih=broj_zaposlenih,
+            extra_items=extra_items,
+        )
+        return self.fakturiranje.to_dict(racun)
+
+    # ════════════════════════════════════════════════════
+    # G3: LIKVIDACIJA
+    # ════════════════════════════════════════════════════
+
+    def start_liquidation(self, client_id: str, datum_odluke: str,
+                           likvidator: str) -> Dict[str, Any]:
+        client = self.registry.get(client_id)
+        if not client:
+            return {"error": "Klijent nije pronađen"}
+        status = self.likvidacija.start(
+            client_id, client.naziv, client.oib, datum_odluke, likvidator
+        )
+        return self.likvidacija.to_dict(status)
+
+    # ════════════════════════════════════════════════════
     # G: KPI DASHBOARD
     # ════════════════════════════════════════════════════
 
@@ -574,6 +668,11 @@ class NyxLightApp:
                 "bolovanje": self.bolovanje.get_stats(),
                 "drugi_dohodak": self.drugi_dohodak.get_stats(),
                 "novcani_tokovi": self.novcani_tokovi.get_stats(),
+                "gfi_xml": self.gfi_xml.get_stats(),
+                "intrastat": self.intrastat.get_stats(),
+                "kadrovska": self.kadrovska.get_stats(),
+                "fakturiranje": self.fakturiranje.get_stats(),
+                "likvidacija": self.likvidacija.get_stats(),
                 "osnovna_sredstva": self.osnovna_sredstva.get_stats(),
                 "deadlines": self.deadlines.get_stats(),
                 "blagajna": self.blagajna.get_stats(),

@@ -1,10 +1,15 @@
 """
-Nyx Light — OVERSEER za Računovodstvo
+Nyx Light — OVERSEER za Računovodstvo V1.3
 
 Tvrde granice sustava:
-1. ZABRANA pravnog savjetovanja izvan obračuna plaća
+1. ZABRANA pravnog savjetovanja izvan domene računovodstva
 2. ZABRANA autonomnog knjiženja (Human-in-the-Loop)
 3. APSOLUTNA PRIVATNOST (zero cloud)
+
+Refinirana granica (per TENA BE Faza 1):
+- Radno pravo: DOZVOLJENO kad je kontekst obračun plaće (otpremnina,
+  bolovanje, vrste ugovora za kalkulaciju). ZABRANJENO kad je pravni
+  savjet (sporovi, tužbe, ugovorno savjetovanje).
 
 Adapted from Nyx 47.0 OverseerSafetyMesh.
 """
@@ -16,15 +21,40 @@ from typing import Any, Dict, Optional, Tuple
 logger = logging.getLogger("nyx_light.safety")
 
 
+# ═══════════════════════════════════════════════════════
 # Zabranjene domene — sustav ODMAH odbija
+# ═══════════════════════════════════════════════════════
 FORBIDDEN_DOMAINS = [
-    "sastavljanje ugovora", "tužba", "sud", "radno pravo",
-    "kazneno pravo", "ovrha", "stečaj", "likvidacija",
+    "sastavljanje ugovora", "tužba", "sud ",     # NB: "sud " s razmakom
+    "kazneno pravo", "prekršajno pravo",
+    "ovrha ", "ovršni postupak",
     "brak", "razvod", "nasljedstvo", "ostavina",
     "odvjetnik", "advokat", "pravni savjet",
+    "spajanje poduzeća", "preuzimanje poduzeća",  # Kompleksno transakcijsko
+    "burza", "dionice",                            # Financijska tržišta
+    "utaja poreza",                                # Kazneno
 ]
 
-# Upozoravajuće ključne riječi
+# ═══════════════════════════════════════════════════════
+# Kontekstualno dozvoljeno — radno pravo za obračun
+# ═══════════════════════════════════════════════════════
+# Ove ključne riječi NE blokiraju ako je kontekst obračun plaće
+RADNO_PRAVO_PAYROLL_CONTEXT = [
+    "otpremnina", "bolovanje", "godišnji odmor",
+    "ugovor o radu",         # Vrste ugovora za kalkulaciju
+    "neodređeno", "određeno", "nepuno radno vrijeme",
+    "trudnička prava", "rodiljni", "roditeljski",
+    "otkaz",                 # Za obračun zadnje plaće
+    "prestanak radnog odnosa",
+]
+
+# Ove su UVIJEK zabranjene čak i u payroll kontekstu
+RADNO_PRAVO_ALWAYS_FORBIDDEN = [
+    "radni spor", "tužba za otkaz", "inspekcija rada",
+    "kolektivni ugovor savjetovanje",
+]
+
+# Upozoravajuće ključne riječi — pokušaj autonomnog djelovanja
 WARNING_KEYWORDS = [
     "automatski proknjiži", "proknjiži bez odobrenja",
     "zaobiđi provjeru", "preskoči odobrenje",
@@ -54,15 +84,47 @@ class AccountingOverseer:
         self._evaluations += 1
         content_lower = content.lower()
 
+        # ── PROVJERA: Radno pravo — uvijek zabranjeno ──
+        for forbidden_rp in RADNO_PRAVO_ALWAYS_FORBIDDEN:
+            if forbidden_rp in content_lower:
+                self._blocks += 1
+                return {
+                    "approved": False,
+                    "reason": (
+                        f"⛔ TVRDA GRANICA: Upit o '{forbidden_rp}' zahtijeva "
+                        "pravnog stručnjaka. Nyx Light pokriva isključivo "
+                        "računovodstveni i porezni aspekt radnog odnosa."
+                    ),
+                    "hard_boundary": True,
+                    "boundary_type": "labor_law",
+                }
+
+        # ── PROVJERA: Je li ovo radno pravo u payroll kontekstu? ──
+        is_payroll_context = any(
+            kw in content_lower for kw in RADNO_PRAVO_PAYROLL_CONTEXT
+        )
+        payroll_indicators = [
+            "obračun", "plaća", "neto", "bruto", "doprinos",
+            "JOPPD", "isplata", "naknada", "kalkulacija",
+        ]
+        has_payroll_indicator = any(
+            ind.lower() in content_lower for ind in payroll_indicators
+        )
+
         # ── TVRDA GRANICA 1: Zabrana pravnog savjetovanja ──
         for forbidden in FORBIDDEN_DOMAINS:
             if forbidden in content_lower:
+                # Iznimka: ako je payroll kontekst, dopusti radno-pravne pojmove
+                if is_payroll_context and has_payroll_indicator:
+                    continue  # Dopusti — kontekst je obračun
+                
                 self._blocks += 1
                 return {
                     "approved": False,
                     "reason": (
                         f"⛔ TVRDA GRANICA: Upit se odnosi na '{forbidden}' "
                         "što je izvan domene računovodstva. "
+                        "Molimo obratite se odgovarajućem stručnjaku — "
                         "Nyx Light ne pruža pravne savjete."
                     ),
                     "hard_boundary": True,

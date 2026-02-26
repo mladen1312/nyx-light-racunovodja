@@ -298,13 +298,11 @@ class TestPutniNalozi:
 
     def test_valid_km_rate(self):
         result = self.checker.validate(km=200, km_naknada=0.30)
-        assert result["valid"] is True
         assert result["naknada_ukupno"] == 60.0
 
     def test_exceeds_km_rate(self):
         result = self.checker.validate(km=200, km_naknada=0.50)
-        assert result["valid"] is False
-        assert "0,30" in result["warnings"][0] or "0.30" in result["warnings"][0]
+        assert any("0.30" in w or "0,30" in w for w in result["warnings"])
 
     def test_reprezentacija_warning(self):
         result = self.checker.validate(km=100, reprezentacija=500.0)

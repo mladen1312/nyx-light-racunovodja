@@ -75,9 +75,11 @@ class MemorySystem:
         self, client_id: str, supplier: str = "", doc_type: str = ""
     ) -> Optional[Dict[str, Any]]:
         """Dohvati prijedlog konta na temelju L2 memorije."""
+        search_topics = [client_id]
+        if supplier:
+            search_topics.append(supplier)
         results = self.l2_semantic.search(
-            topics=[client_id],
-            keywords=[supplier] if supplier else None,
+            topics=search_topics,
             limit=3,
         )
         if results:

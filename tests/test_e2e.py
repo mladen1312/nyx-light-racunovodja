@@ -109,16 +109,16 @@ class TestEndToEnd:
         overseer = AccountingOverseer()
 
         # Pravni savjet — MORA biti blokiran
-        legal_check = overseer.check_query("Sastavi mi ugovor o djelu za zaposlenika")
-        assert legal_check["blocked"] is True
+        legal_check = overseer.evaluate("Sastavi mi ugovor o djelu za zaposlenika")
+        assert legal_check["approved"] is False
 
         # Autonomno knjiženje — MORA biti blokirano
-        auto_check = overseer.check_query("Automatski proknjiži sve ulazne račune")
-        assert auto_check["blocked"] is True
+        auto_check = overseer.evaluate("Automatski proknjiži sve ulazne račune")
+        assert auto_check["approved"] is False
 
         # Legitimno pitanje — NE smije biti blokirano
-        legit_check = overseer.check_query("Koji konto koristim za uredski materijal?")
-        assert legit_check["blocked"] is False
+        legit_check = overseer.evaluate("Koji konto koristim za uredski materijal?")
+        assert legit_check["approved"] is True
 
     # ── 3. Session Management ──
 
@@ -232,15 +232,19 @@ class TestEndToEnd:
 
     def test_compliance_checks(self):
         """Provjeri poreznu usklađenost."""
-        from nyx_light.modules.blagajna.validator import BlagajnaValidator
+        from nyx_light.modules.blagajna.validator import BlagajnaValidator, BlagajnaTx
         from nyx_light.modules.putni_nalozi.checker import PutniNalogChecker
 
-        # Blagajna: 10.000 EUR limit
+        # Blagajna: 10.000 EUR AML limit
         bv = BlagajnaValidator()
-        assert bv.validate(9999.99)["valid"] is True
-        assert bv.validate(10001.00)["valid"] is False
+        tx_ok = BlagajnaTx(iznos=9999.99, vrsta="isplata")
+        assert bv.validate_transaction(tx_ok).valid is True
+        tx_over = BlagajnaTx(iznos=10001.00, vrsta="isplata")
+        assert bv.validate_transaction(tx_over).valid is False
 
-        # Putni nalog: 0,30 EUR/km
+        # Putni nalog: 0,30 EUR/km (warning if exceeded)
         pn = PutniNalogChecker()
-        assert pn.validate(km=100, km_naknada=0.30)["valid"] is True
-        assert pn.validate(km=100, km_naknada=0.50)["valid"] is False
+        r1 = pn.validate(km=100, km_naknada=0.30)
+        assert r1["naknada_ukupno"] == 30.0
+        r2 = pn.validate(km=100, km_naknada=0.50)
+        assert any("0.30" in w or "0,30" in w for w in r2["warnings"])

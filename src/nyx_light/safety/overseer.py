@@ -25,14 +25,16 @@ logger = logging.getLogger("nyx_light.safety")
 # Zabranjene domene — sustav ODMAH odbija
 # ═══════════════════════════════════════════════════════
 FORBIDDEN_DOMAINS = [
-    "sastavljanje ugovora", "tužba", "sud ",     # NB: "sud " s razmakom
+    "sastavljanje ugovora", "sastavi mi ugovor", "sastavi ugovor",
+    "napravi ugovor", "napiši ugovor",
+    "tužb", "sud ",     # NB: "sud " s razmakom
     "kazneno pravo", "prekršajno pravo",
     "ovrha ", "ovršni postupak",
     "brak", "razvod", "nasljedstvo", "ostavina",
     "odvjetnik", "advokat", "pravni savjet",
-    "spajanje poduzeća", "preuzimanje poduzeća",  # Kompleksno transakcijsko
-    "burza", "dionice",                            # Financijska tržišta
-    "utaja poreza",                                # Kazneno
+    "spajanje poduzeća", "preuzimanje poduzeća",
+    "burza", "dionice",
+    "utaja poreza",
 ]
 
 # ═══════════════════════════════════════════════════════
@@ -50,7 +52,7 @@ RADNO_PRAVO_PAYROLL_CONTEXT = [
 
 # Ove su UVIJEK zabranjene čak i u payroll kontekstu
 RADNO_PRAVO_ALWAYS_FORBIDDEN = [
-    "radni spor", "tužba za otkaz", "inspekcija rada",
+    "radni spor", "tužb", "inspekcija rada",
     "kolektivni ugovor savjetovanje",
 ]
 

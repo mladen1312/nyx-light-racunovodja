@@ -1,0 +1,54 @@
+# Nyx Light — Računovođa Configuration
+# Mac Studio M5 Ultra (192 GB)
+
+hardware:
+  total_memory_gb: 192
+  wired_memory_pct: 0.83
+  max_users: 15
+
+models:
+  primary: "mlx-community/Qwen2.5-72B-Instruct-4bit"
+  vision: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
+  embedding: "intfloat/multilingual-e5-base"
+
+vllm:
+  host: "127.0.0.1"
+  port: 8080
+  max_concurrency: 15
+  max_tokens: 4096
+  temperature: 0.3  # Niska za preciznost
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+
+erp:
+  supported:
+    - CPP
+    - Synesis
+  export_formats:
+    - XML
+    - JSON
+    - CSV
+
+banks:
+  supported:
+    - Erste
+    - Zaba
+    - PBZ
+    - OTP
+    - Addiko
+
+safety:
+  require_human_approval: true  # UVIJEK
+  enable_cloud_apis: false      # NIKADA
+  max_cash_limit_eur: 10000
+  km_naknada_eur: 0.30
+
+rag:
+  laws:
+    - "Zakon o računovodstvu"
+    - "Zakon o PDV-u"
+    - "Zakon o porezu na dobit"
+    - "Zakon o porezu na dohodak"
+    - "Mišljenja Porezne uprave"

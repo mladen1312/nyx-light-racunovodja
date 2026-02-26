@@ -22,6 +22,8 @@ from typing import Any, Dict, List, Optional
 
 # Core
 from nyx_light.pipeline import BookingPipeline, BookingProposal
+from nyx_light.pipeline.persistent import PersistentPipeline
+from nyx_light.pipeline.persistent import PersistentPipeline
 from nyx_light.export import ERPExporter
 from nyx_light.registry import ClientRegistry, ClientConfig
 
@@ -43,9 +45,17 @@ from nyx_light.modules.payroll import PayrollEngine, Employee
 # Moduli — Grupa C
 from nyx_light.modules.pdv_prijava import PDVPrijavaEngine
 from nyx_light.modules.joppd import JOPPDGenerator
+from nyx_light.modules.porez_dobit import PorezDobitiEngine
+from nyx_light.modules.porez_dohodak import PorezDohodakEngine
 
 # Moduli — Grupa D
 from nyx_light.modules.gfi_prep import GFIPrepEngine
+
+# Moduli — Grupa B+
+from nyx_light.modules.bolovanje import BolovanjeEngine
+
+# Moduli — Grupa G
+from nyx_light.modules.kpi import KPIDashboard
 
 # Moduli — Grupa F
 from nyx_light.modules.deadlines import DeadlineTracker
@@ -81,10 +91,16 @@ class NyxLightApp:
         # → CPP XML datoteka generirana
     """
 
-    def __init__(self, export_dir: str = "data/exports"):
+    def __init__(self, export_dir: str = "data/exports", db_path: str = None):
         # ── Core ──
         self.exporter = ERPExporter(export_dir=export_dir)
-        self.pipeline = BookingPipeline(exporter=self.exporter)
+        if db_path:
+            self._persistent = PersistentPipeline(db_path)
+            self.pipeline = self._persistent.pipeline
+            self.pipeline.exporter = self.exporter
+        else:
+            self._persistent = None
+            self.pipeline = BookingPipeline(exporter=self.exporter)
         self.registry = ClientRegistry()
         self.overseer = AccountingOverseer()
 
@@ -105,9 +121,17 @@ class NyxLightApp:
 
         # ── Grupa C — Porezne prijave ──
         self.pdv = PDVPrijavaEngine()
+        self.porez_dobit = PorezDobitiEngine()
+        self.porez_dohodak = PorezDohodakEngine()
 
         # ── Grupa D — GFI ──
         self.gfi = GFIPrepEngine()
+
+        # ── Grupa B+ — Bolovanje ──
+        self.bolovanje = BolovanjeEngine()
+
+        # ── Grupa G — KPI ──
+        self.kpi = KPIDashboard()
 
         # ── Grupa F — Rokovi ──
         self.deadlines = DeadlineTracker()
@@ -120,6 +144,12 @@ class NyxLightApp:
         self.kontni_plan = get_full_kontni_plan()
 
         logger.info("NyxLightApp inicijaliziran — svi moduli spojeni")
+
+    def _submit(self, proposal: BookingProposal) -> Dict[str, Any]:
+        """Route submit through persistent pipeline when available."""
+        if self._persistent:
+            return self._persistent.submit(proposal)
+        return self.pipeline.submit(proposal)
 
     # ════════════════════════════════════════════════════
     # CLIENT REGISTRY
@@ -153,7 +183,7 @@ class NyxLightApp:
 
         # Pipeline
         proposal = self.pipeline.from_invoice(invoice_data, konto_result, client_id, erp)
-        return self.pipeline.submit(proposal)
+        return self._submit(proposal)
 
     # ════════════════════════════════════════════════════
     # A2: IZLAZNI RAČUNI
@@ -215,7 +245,7 @@ class NyxLightApp:
         # Pipeline
         proposal = self.pipeline.from_petty_cash(tx_data, konto, client_id, erp)
         proposal.warnings.extend(validation.warnings)
-        return self.pipeline.submit(proposal)
+        return self._submit(proposal)
 
     # ════════════════════════════════════════════════════
     # A6: PUTNI NALOZI
@@ -227,7 +257,7 @@ class NyxLightApp:
         """Putni nalog: Validacija → Pipeline."""
         erp = self.get_client_erp(client_id)
         proposal = self.pipeline.from_travel_expense(putni_data, client_id, erp)
-        return self.pipeline.submit(proposal)
+        return self._submit(proposal)
 
     # ════════════════════════════════════════════════════
     # A7: OSNOVNA SREDSTVA
@@ -264,7 +294,7 @@ class NyxLightApp:
     def process_ios(self, ios_data: Dict, client_id: str) -> Dict[str, Any]:
         erp = self.get_client_erp(client_id)
         proposal = self.pipeline.from_ios(ios_data, client_id, erp)
-        return self.pipeline.submit(proposal)
+        return self._submit(proposal)
 
     # ════════════════════════════════════════════════════
     # B: PLAĆE
@@ -324,6 +354,89 @@ class NyxLightApp:
         return self.pdv.to_dict(ppo)
 
     # ════════════════════════════════════════════════════
+    # C: POREZ NA DOBIT (PD obrazac)
+    # ════════════════════════════════════════════════════
+
+    def prepare_porez_dobit(
+        self, client_id: str, godina: int,
+        ukupni_prihodi: float, ukupni_rashodi: float,
+        uvecanja: Dict = None, umanjenja: Dict = None,
+        predujmovi: float = 0.0,
+    ) -> Dict[str, Any]:
+        """Pripremi PD obrazac za klijenta."""
+        client = self.registry.get(client_id)
+        pd = self.porez_dobit.calculate(
+            godina, ukupni_prihodi, ukupni_rashodi,
+            uvecanja, umanjenja, predujmovi,
+            oib=client.oib if client else "",
+            naziv=client.naziv if client else "",
+        )
+        return self.porez_dobit.to_dict(pd)
+
+    # ════════════════════════════════════════════════════
+    # C: POREZ NA DOHODAK (DOH obrazac)
+    # ════════════════════════════════════════════════════
+
+    def prepare_porez_dohodak(
+        self, client_id: str, godina: int,
+        primitci: float, izdatci: float,
+        djeca: int = 0, grad: str = "Zagreb",
+        predujmovi: float = 0.0,
+    ) -> Dict[str, Any]:
+        """Pripremi DOH obrazac za obrtnika."""
+        client = self.registry.get(client_id)
+        doh = self.porez_dohodak.calculate_obrt(
+            godina, primitci, izdatci,
+            djeca=djeca, grad=grad,
+            placeni_predujmovi=predujmovi,
+            oib=client.oib if client else "",
+            ime=client.naziv if client else "",
+        )
+        return self.porez_dohodak.to_dict(doh)
+
+    # ════════════════════════════════════════════════════
+    # B+: BOLOVANJE
+    # ════════════════════════════════════════════════════
+
+    def process_sick_leave(
+        self, djelatnik: str, vrsta: str, dani: int,
+        prosjecna_placa: float, client_id: str,
+    ) -> Dict[str, Any]:
+        """Obračun bolovanja → Pipeline."""
+        erp = self.get_client_erp(client_id)
+        result = self.bolovanje.calculate(djelatnik, vrsta, dani, prosjecna_placa)
+        lines = self.bolovanje.booking_lines(result)
+
+        proposal = BookingProposal(
+            client_id=client_id,
+            document_type="bolovanje",
+            erp_target=erp,
+            lines=lines,
+            opis=f"Bolovanje: {djelatnik} — {dani} dana ({vrsta})",
+            ukupni_iznos=result.naknada_ukupno,
+            confidence=0.9,
+            source_module="bolovanje",
+            warnings=result.warnings,
+        )
+        submit = self._submit(proposal)
+        submit["bolovanje"] = {
+            "teret_poslodavac": result.naknada_teret_poslodavac,
+            "teret_hzzo": result.naknada_teret_hzzo,
+            "dani_poslodavac": result.dani_poslodavac,
+            "dani_hzzo": result.dani_hzzo,
+            "naknada_dnevna": result.naknada_dnevna,
+        }
+        return submit
+
+    # ════════════════════════════════════════════════════
+    # G: KPI DASHBOARD
+    # ════════════════════════════════════════════════════
+
+    def calculate_kpi(self, financial_data) -> Dict[str, Any]:
+        """Izračunaj KPI pokazatelje za klijenta."""
+        return self.kpi.calculate_all(financial_data)
+
+    # ════════════════════════════════════════════════════
     # D: GFI PRIPREMA
     # ════════════════════════════════════════════════════
 
@@ -343,15 +456,21 @@ class NyxLightApp:
 
     def approve(self, proposal_id: str, user_id: str) -> Dict[str, Any]:
         """Računovođa odobrava prijedlog."""
+        if self._persistent:
+            return self._persistent.approve(proposal_id, user_id)
         return self.pipeline.approve(proposal_id, user_id)
 
     def approve_batch(self, proposal_ids: List[str], user_id: str) -> List[Dict]:
-        return [self.pipeline.approve(pid, user_id) for pid in proposal_ids]
+        return [self.approve(pid, user_id) for pid in proposal_ids]
 
     def correct(self, proposal_id: str, user_id: str, corrections: Dict) -> Dict:
+        if self._persistent:
+            return self._persistent.correct(proposal_id, user_id, corrections)
         return self.pipeline.correct(proposal_id, user_id, corrections)
 
     def reject(self, proposal_id: str, user_id: str, reason: str = "") -> Dict:
+        if self._persistent:
+            return self._persistent.reject(proposal_id, user_id, reason)
         return self.pipeline.reject(proposal_id, user_id, reason)
 
     def export_to_erp(
@@ -364,6 +483,10 @@ class NyxLightApp:
         """
         erp = self.get_client_erp(client_id)
         export_fmt = fmt or self.registry.get_export_format(client_id)
+        if self._persistent:
+            return self._persistent.export_approved(
+                client_id=client_id, erp=erp, fmt=export_fmt,
+            )
         return self.pipeline.export_approved(
             client_id=client_id, erp_target=erp, fmt=export_fmt,
         )
@@ -393,10 +516,14 @@ class NyxLightApp:
                 "payroll": self.payroll.get_stats(),
                 "pdv": self.pdv.get_stats(),
                 "joppd": self.joppd.get_stats(),
+                "porez_dobit": self.porez_dobit.get_stats(),
+                "porez_dohodak": self.porez_dohodak.get_stats(),
+                "bolovanje": self.bolovanje.get_stats(),
                 "osnovna_sredstva": self.osnovna_sredstva.get_stats(),
                 "deadlines": self.deadlines.get_stats(),
                 "blagajna": self.blagajna.get_stats(),
                 "putni_nalozi": self.putni_nalozi.get_stats(),
+                "kpi": self.kpi.get_stats(),
             },
             "kontni_plan_konta": len(self.kontni_plan),
         }

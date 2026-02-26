@@ -709,13 +709,16 @@ class NyxLightApp:
 
     def erp_push_auto(self, client_id: str, bookings: List[Dict],
                        confidence: float) -> Dict[str, Any]:
-        """Autonomno knjiženje — AI samostalno šalje u ERP.
+        """Autonomno knjiženje — BUDUĆA OPCIJA za kad sustav bude 100% testiran.
 
-        ZAHTIJEVA:
-        - auto_book=True u konfiguraciji klijenta
-        - confidence >= min_confidence (default 0.95)
-        - iznos <= max_amount (default 50k EUR)
-        - OVERSEER sigurnosne granice prolaze
+        PO DEFAULT-U ISKLJUČENO. Za aktivaciju potrebno:
+        1. Računovođa eksplicitno uključi auto_book=True za klijenta
+        2. Sustav mora biti potpuno testiran na tom klijentu (min. 6 mj.)
+        3. Confidence >= 95% za svako knjiženje
+        4. Iznos <= max_amount (default 50k EUR)
+        5. OVERSEER provjera svake stavke
+        6. Audit log SVAKOG autonomnog knjiženja
+        7. Dnevni izvještaj računovođi o svim auto-knjiženjima
         """
         conn = self._erp_connectors.get(client_id)
         if not conn:

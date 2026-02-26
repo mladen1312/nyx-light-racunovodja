@@ -84,9 +84,9 @@ saldo = cpp.pull_saldo_konta("1200")
 bilanca = cpp.pull_bruto_bilanca("2026-01")
 ```
 
-### Autonomni mod (AI samostalno knjiži)
+### Autonomni mod (BUDUĆA OPCIJA — po default-u ISKLJUČENO)
 
-U `config.json`:
+U `config.json` — aktivirati **tek kad sustav bude 100% testiran** na klijentu (min. 6 mj.):
 ```json
 {
   "erp": {
@@ -99,12 +99,15 @@ U `config.json`:
 }
 ```
 
-Kad je uključen, AI automatski knjiži **bez čekanja odobrenja** — ali samo ako:
-- Confidence ≥ 95%
+Kad se jednog dana uključi, AI automatski knjiži **bez čekanja odobrenja** — ali samo ako:
+- Sustav je testiran minimum 6 mjeseci na tom klijentu
+- Računovođa eksplicitno uključi `auto_book: true`
+- Confidence ≥ 95% za svako knjiženje
 - Iznos ≤ 50.000 EUR
 - OVERSEER sigurnosne granice prolaze (AML, limiti)
 - Svako autonomno knjiženje se bilježi u audit log
-- Računovođa može isključiti u svakom trenutku
+- Računovođa dobiva dnevni izvještaj svih auto-knjiženja
+- Računovođa može isključiti u **svakom trenutku**
 
 ---
 

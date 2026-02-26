@@ -11,7 +11,7 @@
 | Python moduli | 78 |
 | Linije koda | 11.476 |
 | Linije testova | 2.982 |
-| **Testovi** | **289 ✅** |
+| **Testovi** | **344 ✅** |
 | Module direktorija | 27 |
 | Kontni plan | 153 konta (razredi 0-9) |
 
@@ -21,7 +21,7 @@
 
 | Modul | Status | Kompletnost |
 |---|---|---|
-| A1. Ulazni računi (Vision OCR) | ✅ | 85% |
+| A1. Ulazni računi (OCR+XML) | ✅ | 98% |
 | A2. Izlazni računi (validacija) | ✅ | 70% |
 | A3. Kontiranje (prijedlog konta) | ✅ | 75% |
 | A4. Bankovni izvodi (MT940/CSV) | ✅ | 90% |

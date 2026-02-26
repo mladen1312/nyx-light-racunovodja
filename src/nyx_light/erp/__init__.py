@@ -104,7 +104,20 @@ class ERPConnector:
 
     def push_auto(self, bookings: List[Dict], client_id: str,
                    confidence: float) -> Dict[str, Any]:
-        """Autonomno knjiženje — samo ako je uključeno i uvjeti zadovoljeni."""
+        """Autonomno knjiženje — BUDUĆA OPCIJA, ISKLJUČENA PO DEFAULT-u.
+
+        Ovo se NE SMIJE aktivirati dok sustav nije 100% testiran i
+        dok računovođa eksplicitno ne odobri aktivaciju za specifičnog klijenta.
+
+        Kad je uključen:
+        - Samo za ponavljajuća, rutinska knjiženja (npr. isti dobavljač svaki mjesec)
+        - Confidence mora biti ≥ 95% (konfigurirano)
+        - Iznos mora biti ≤ max_amount (default 50k EUR)
+        - OVERSEER sigurnosne granice i dalje vrijede
+        - Svako autonomno knjiženje ide u audit log
+        - Računovođa može isključiti u SVAKOM trenutku
+        - Računovođa dobiva dnevni email s listom autonomnih knjiženja
+        """
         if not self.config.auto_book:
             return {
                 "status": "blocked",

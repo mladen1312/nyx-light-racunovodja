@@ -7,12 +7,12 @@
 
 | Metrika | Vrijednost |
 |---|---|
-| Git commitovi | 9 |
-| Python moduli | 78 |
-| Linije koda | 11.476 |
-| Linije testova | 2.982 |
-| **Testovi** | **344 ✅** |
-| Module direktorija | 27 |
+| Git commitovi | 12 |
+| Python moduli | 86 |
+| Linije koda | 15.338 |
+| Linije testova | 4.324 |
+| **Testovi** | **402 ✅** |
+| Module direktorija | 33 |
 | Kontni plan | 153 konta (razredi 0-9) |
 
 ---
@@ -76,8 +76,8 @@
 | Modul | Status | Kompletnost |
 |---|---|---|
 | E1. Rokovi i upozorenja | ✅ | 85% |
-| E2. Pojašnjenje izvještaja | ✅ (Chat) | 60% |
-| E3. Onboarding klijenta | ✅ (Registry) | 50% |
+| E2. Pojašnjenje izvještaja | ✅ | 85% |
+| E3. Onboarding klijenta | ✅ | 85% |
 
 **Grupa E: 3/3 ✅ 100%**
 
@@ -96,9 +96,9 @@
 | Modul | Status | Kompletnost |
 |---|---|---|
 | G1. KPI Dashboard | ✅ | 80% |
-| G2. Upravljačko računovodstvo | ✅ (KPI) | 50% |
+| G2. Upravljačko računovodstvo | ✅ | 85% |
 | G3. Likvidacijsko računovodstvo | ✅ | 80% |
-| G4. Poslovni planovi | ✅ (LLM) | 40% |
+| G4. Poslovni planovi | ✅ | 80% |
 
 **Grupa G: 4/4 ✅ 100%**
 
@@ -115,7 +115,11 @@
 | RAG (zakoni RH) | ✅ | 60% |
 | SQLite Persistence | ✅ | 80% |
 | **Web UI (Chat + Approval)** | ✅ | **75%** |
-| Nightly DPO Training | ✅ (skelet) | 40% |
+| **Auth (JWT + Role-Based)** | ✅ | **90%** |
+| **LLM Chat Bridge** | ✅ | **85%** |
+| **Model Manager (Auto-Download)** | ✅ | **90%** |
+| **DPO Nightly Training** | ✅ | **80%** |
+| Nightly DPO Training | ✅ | 80% |
 | e-Računi Parser | ✅ | 80% |
 | Pantheon Parser | ✅ | 75% |
 

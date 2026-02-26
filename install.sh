@@ -534,8 +534,12 @@ main() {
     echo -e "  Pokrenite sustav:  ${BLUE}./start.sh${NC}"
     echo -e "  Web sučelje:       ${BLUE}http://localhost:8080${NC}"
     echo -e "  Testovi:           ${BLUE}source .venv/bin/activate && pytest tests/${NC}"
+    echo -e "  Update modela:     ${BLUE}./update.sh${NC}"
+    echo -e "  Provjeri update:   ${BLUE}./update.sh --check${NC}"
     echo ""
     echo -e "  ${YELLOW}VAŽNO: Sustav radi 100% offline — nijedan podatak ne napušta Mac Studio!${NC}"
+    echo -e "  ${YELLOW}Pri zamjeni modela (./update.sh) znanje se NE GUBI — LoRA adapteri,${NC}"
+    echo -e "  ${YELLOW}memorija, DPO dataset i RAG baza ostaju netaknuti.${NC}"
     echo ""
 }
 

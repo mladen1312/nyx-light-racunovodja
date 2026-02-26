@@ -1,8 +1,9 @@
-# CLAUDE.md — Nyx Light Računovođa
+# CLAUDE.md — Nyx Light Računovođa V1.3
 
 ## Pregled
 Nyx Light — Računovođa: privatni AI sustav za računovodstvo RH.
-Mac Studio M5 Ultra (192 GB), 15 zaposlenika, 100% offline.
+**MoE Architecture:** Qwen3-235B-A22B (235B ukupno, ~22B aktivno)
+Mac Studio M3 Ultra (256 GB), 15 zaposlenika, 100% offline.
 
 ## Ključne naredbe
 ```bash

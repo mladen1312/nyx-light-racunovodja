@@ -29,9 +29,16 @@ lint:  ## Provjeri kod s ruff
 format:  ## Formatiraj kod
 	ruff format src/ tests/
 
-vllm-start:  ## Pokreni vLLM-MLX server (Qwen 72B)
+vllm-start:  ## Pokreni vLLM-MLX server (Qwen3-235B MoE)
 	mlx_lm.server \
-		--model mlx-community/Qwen2.5-72B-Instruct-4bit \
+		--model mlx-community/Qwen3-235B-A22B-4bit \
+		--port 8080 \
+		--host 127.0.0.1 \
+		--max-concurrency 15
+
+vllm-start-small:  ## Pokreni vLLM-MLX (Qwen3-30B — fallback za manje RAM-a)
+	mlx_lm.server \
+		--model mlx-community/Qwen3-30B-A3B-4bit \
 		--port 8080 \
 		--host 127.0.0.1 \
 		--max-concurrency 15

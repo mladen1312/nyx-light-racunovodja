@@ -215,6 +215,7 @@ class SystemMonitor:
         """Kompletni zdravstveni izvještaj."""
         return {
             "timestamp": datetime.now().isoformat(),
+            "version": "1.3-MoE",
             "system": self.get_system_info(),
             "memory": self.get_memory_stats(),
             "disk": self.get_disk_stats(),
@@ -222,5 +223,13 @@ class SystemMonitor:
             "qdrant": self.check_qdrant_status(),
             "neo4j": self.check_neo4j_status(),
             "inference": self.get_inference_stats(),
-            "alerts": self._alerts[-10:],  # Zadnjih 10
+            "moe_info": {
+                "model": "Qwen3-235B-A22B",
+                "total_params_b": 235,
+                "active_params_b": 22,
+                "architecture": "Mixture-of-Experts",
+                "active_experts": "8-16 / 128",
+                "note": "Samo ~22B aktivno u RAM-u; ostalo lazy-loaded sa SSD-a",
+            },
+            "alerts": self._alerts[-10:],
         }

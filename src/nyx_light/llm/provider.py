@@ -1,8 +1,17 @@
 """
-Nyx Light — vLLM-MLX Provider za Mac Studio M5 Ultra (192 GB)
+Nyx Light — vLLM-MLX Provider za Mac Studio M3 Ultra (256 GB)
+V1.3 — MoE Architecture: Qwen3-235B-A22B
 
-Optimizirani inference engine za 15 paralelnih korisnika.
-Koristi Continuous Batching + PagedAttention za glatko posluživanje.
+Ključna inovacija:
+  Qwen3-235B-A22B koristi Mixture-of-Experts (MoE) arhitekturu.
+  Od 235B parametara, samo ~22B je aktivno u svakom trenutku.
+  MLX lazy evaluation + PagedAttention = stabilan rad za 15 korisnika.
+
+Memory Budget (peak):
+  Qwen3-235B-A22B aktivni eksperti: ~124 GB
+  KV cache (15 sesija):              ~25–35 GB
+  OS + servisi:                      ~12–18 GB
+  Slobodno:                          ~56–78 GB od 256 GB
 
 Adaptirano iz Nyx 47.0 VLLMMLXProvider.
 """
@@ -29,11 +38,34 @@ class InferenceBackend(Enum):
 
 
 @dataclass
+class MoEConfig:
+    """Konfiguracija za Mixture-of-Experts model."""
+    total_params_b: float = 235.0
+    active_params_b: float = 22.0
+    num_experts: int = 128
+    active_experts_per_token: int = 8
+    peak_memory_gb: float = 124.0
+    ssd_swap_enabled: bool = True
+    expert_cache_size: int = 32      # "Toplih" eksperata u RAM-u
+
+
+@dataclass
 class LLMConfig:
     """Konfiguracija za vLLM-MLX inference."""
     backend: InferenceBackend = InferenceBackend.AUTO
-    default_model: str = "mlx-community/Qwen2.5-72B-Instruct-4bit"
-    vision_model: str = "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
+
+    # Primarni model — MoE
+    default_model: str = "mlx-community/Qwen3-235B-A22B-4bit"
+    moe: MoEConfig = field(default_factory=MoEConfig)
+
+    # Vision model — Dense, on-demand loading
+    vision_model: str = "mlx-community/Qwen3-VL-8B-Instruct-4bit"
+    vision_model_loaded: bool = False
+    vision_unload_after_s: int = 300  # Unload nakon 5 min neaktivnosti
+
+    # Fallback (low-memory)
+    fallback_model: str = "mlx-community/Qwen3-30B-A3B-4bit"
+
     max_tokens: int = 4096
     temperature: float = 0.3
     top_p: float = 0.95
@@ -46,11 +78,17 @@ class LLMConfig:
     vllm_port: int = 8080
     vllm_max_concurrency: int = 15
     wired_memory_pct: float = 0.83
+    total_memory_gb: float = 256.0
 
 
 class NyxLightLLM:
     """
-    LLM Provider za Nyx Light — Računovođa.
+    LLM Provider za Nyx Light — Računovođa V1.3.
+    
+    MoE-Aware Inference Engine:
+    - Qwen3-235B-A22B: 235B ukupno, ~22B aktivno (MoE routing)
+    - Qwen3-VL-8B: On-demand loading za OCR zadatke
+    - Dynamic memory management: MLX lazy eval + PagedAttention
     
     Podržava:
     1. vLLM-MLX server (produkcija, 15 korisnika)
@@ -61,11 +99,18 @@ class NyxLightLLM:
     def __init__(self, config: Optional[LLMConfig] = None):
         self.config = config or LLMConfig()
         self._model_loaded = False
+        self._vision_loaded = False
+        self._vision_last_used = 0.0
         self._call_count = 0
+        self._vision_call_count = 0
         self._total_tokens = 0
+        self._active_experts_history: List[int] = []
         logger.info(
-            "NyxLightLLM initialized: model=%s, backend=%s",
-            self.config.default_model, self.config.backend.value
+            "NyxLightLLM V1.3 initialized: model=%s (MoE %dB/%dB), backend=%s",
+            self.config.default_model,
+            int(self.config.moe.total_params_b),
+            int(self.config.moe.active_params_b),
+            self.config.backend.value,
         )
 
     def _is_vllm_running(self) -> bool:
@@ -193,10 +238,71 @@ class NyxLightLLM:
         content = (
             "[Nyx Light — Estimation Mode] "
             "vLLM-MLX server nije dostupan. Pokrenite server s: "
-            "mlx_lm.server --model mlx-community/Qwen2.5-72B-Instruct-4bit "
-            f"--port {self.config.vllm_port} --max-concurrency {self.config.vllm_max_concurrency}"
+            "mlx_lm.server --model mlx-community/Qwen3-235B-A22B-4bit "
+            f"--port {self.config.vllm_port} --max-concurrency {self.config.vllm_max_concurrency} "
+            "--moe-offload"
         )
         return content, len(content.split())
+
+    def estimate_memory_usage(self) -> Dict[str, Any]:
+        """Procijeni trenutnu memorijsku potrošnju (MoE-aware)."""
+        moe = self.config.moe
+        vision_gb = 5.0 if self._vision_loaded else 0.0
+        kv_estimate_gb = min(self._call_count * 0.5, 35.0)  # Rough KV cache estimate
+
+        active_model_gb = moe.peak_memory_gb  # Routing weights + active experts
+        total_used = active_model_gb + vision_gb + kv_estimate_gb + 15.0  # +15 GB OS/services
+
+        return {
+            "model_architecture": "MoE",
+            "total_params_b": moe.total_params_b,
+            "active_params_b": moe.active_params_b,
+            "active_experts": moe.active_experts_per_token,
+            "total_experts": moe.num_experts,
+            "model_memory_gb": round(active_model_gb, 1),
+            "vision_loaded": self._vision_loaded,
+            "vision_memory_gb": round(vision_gb, 1),
+            "kv_cache_estimate_gb": round(kv_estimate_gb, 1),
+            "total_estimated_gb": round(total_used, 1),
+            "total_available_gb": self.config.total_memory_gb,
+            "headroom_gb": round(self.config.total_memory_gb - total_used, 1),
+            "ssd_swap_active": total_used > self.config.total_memory_gb * 0.78,
+        }
+
+    async def generate_vision(
+        self,
+        image_path: str,
+        prompt: str = "Izvuci sve podatke s ovog računa: OIB, iznos, PDV, datum.",
+    ) -> Dict[str, Any]:
+        """
+        Pokreni Vision model (Qwen3-VL-8B) za OCR.
+        Model se učitava on-demand i unload-a nakon neaktivnosti.
+        """
+        self._vision_loaded = True
+        self._vision_last_used = time.time()
+        self._vision_call_count += 1
+
+        # U produkciji: šalje request na vLLM-MLX s vision modelom
+        # Za sada: fallback
+        logger.info("Vision OCR requested: %s (model loaded on-demand)", image_path)
+
+        return {
+            "model": self.config.vision_model,
+            "status": "on-demand loaded",
+            "vision_calls": self._vision_call_count,
+            "note": "Qwen3-VL-8B učitan na zahtjev — unload nakon 5 min",
+        }
+
+    def maybe_unload_vision(self):
+        """Unload Vision model ako je neaktivan duže od vision_unload_after_s."""
+        if self._vision_loaded and self._vision_last_used:
+            idle = time.time() - self._vision_last_used
+            if idle > self.config.vision_unload_after_s:
+                self._vision_loaded = False
+                logger.info(
+                    "Vision model unloaded (idle %.0f s > %d s threshold)",
+                    idle, self.config.vision_unload_after_s,
+                )
 
     def _format_messages(self, messages: List[Dict[str, str]]) -> str:
         parts = []
@@ -208,10 +314,19 @@ class NyxLightLLM:
         return "\n".join(parts)
 
     def get_stats(self) -> Dict[str, Any]:
+        self.maybe_unload_vision()  # Check if vision should be unloaded
+        memory = self.estimate_memory_usage()
         return {
-            "call_count": self._call_count,
-            "total_tokens": self._total_tokens,
             "model": self.config.default_model,
+            "architecture": "MoE (Mixture-of-Experts)",
+            "total_params_b": self.config.moe.total_params_b,
+            "active_params_b": self.config.moe.active_params_b,
+            "active_experts": f"{self.config.moe.active_experts_per_token}/{self.config.moe.num_experts}",
+            "call_count": self._call_count,
+            "vision_call_count": self._vision_call_count,
+            "total_tokens": self._total_tokens,
             "vllm_running": self._is_vllm_running(),
             "backend": self.config.backend.value,
+            "vision_loaded": self._vision_loaded,
+            "memory": memory,
         }

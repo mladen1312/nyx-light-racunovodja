@@ -1,26 +1,23 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════
-# Nyx Light — Računovođa: Deploy Script za Mac Studio M5 Ultra
+# Nyx Light — Računovođa V1.3: Deploy za Mac Studio M3 Ultra
+# MoE Architecture: Qwen3-235B-A22B
 # ═══════════════════════════════════════════════════════════
 #
 # Korištenje:
 #   chmod +x deploy/deploy_mac_studio.sh
 #   sudo ./deploy/deploy_mac_studio.sh
 #
-# Što radi:
-#   1. Kreira /opt/nyx-light direktorij
-#   2. Klonira repo i postavlja venv
-#   3. Konfigurira wired memory (83% od 192 GB)
-#   4. Preuzima AI modele (Qwen 72B + Qwen2.5-VL-7B)
-#   5. Pokreće vLLM-MLX server
-#   6. Instalira LaunchDaemon za auto-start
-#   7. Pokreće Qdrant i Neo4j (Docker)
+# Hardver: Mac Studio M3 Ultra (256 GB Unified Memory)
+# Model: Qwen3-235B-A22B (MoE: 235B ukupno, ~22B aktivno)
 # ═══════════════════════════════════════════════════════════
 
 set -e
 
 echo "═══════════════════════════════════════════════════════════"
-echo "  🌙 Nyx Light — Računovođa: Mac Studio M5 Ultra Deploy"
+echo "  🌙 Nyx Light — Računovođa V1.3"
+echo "  MoE Architecture: Qwen3-235B-A22B"
+echo "  Target: Mac Studio M3 Ultra (256 GB)"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -42,9 +39,21 @@ MEM_GB=$((MEM_BYTES / 1073741824))
 echo "  Čip: $CHIP"
 echo "  Memorija: ${MEM_GB} GB"
 
-if [ "$MEM_GB" -lt 128 ]; then
-    echo "⚠️  Preporučeno minimalno 192 GB RAM. Detektirano: ${MEM_GB} GB"
-    echo "  Sustav će raditi u reduciranom modu."
+if [ "$MEM_GB" -ge 256 ]; then
+    echo "  ✅ 256 GB — optimalno za Qwen3-235B-A22B MoE"
+    MODEL_SIZE="235B"
+elif [ "$MEM_GB" -ge 192 ]; then
+    echo "  ⚠️  192 GB — Qwen3-235B-A22B MoE može raditi uz agresivniji swap"
+    MODEL_SIZE="235B"
+elif [ "$MEM_GB" -ge 128 ]; then
+    echo "  ⚠️  128 GB — koristim Qwen3-30B-A3B (manji MoE fallback)"
+    MODEL_SIZE="30B"
+elif [ "$MEM_GB" -ge 64 ]; then
+    echo "  ⚠️  64 GB — koristim Qwen3-30B-A3B u reduciranom modu"
+    MODEL_SIZE="30B"
+else
+    echo "  ❌ Nedovoljno memorije za produkcijski rad"
+    MODEL_SIZE="30B"
 fi
 
 # ── 2. Kreiranje direktorija ──
@@ -93,29 +102,45 @@ fi
 # ── 7. Preuzimanje modela ──
 echo ""
 echo "🤖 Preuzimanje AI modela (ovo može potrajati)..."
-echo "  Model 1: Qwen2.5-72B-Instruct-4bit (~40 GB)"
-python3 -c "
-from huggingface_hub import snapshot_download
-try:
-    snapshot_download('mlx-community/Qwen2.5-72B-Instruct-4bit', 
-                      local_dir='$INSTALL_DIR/data/models/qwen-72b-4bit',
-                      local_dir_use_symlinks=False)
-    print('  ✅ Qwen 72B preuzet')
-except Exception as e:
-    print(f'  ⚠️  Qwen 72B: {e}')
-    print('  Ručno preuzmite: huggingface-cli download mlx-community/Qwen2.5-72B-Instruct-4bit')
-" 2>/dev/null || echo "  ⚠️  Ručno preuzmite modele"
 
-echo "  Model 2: Qwen2.5-VL-7B-Instruct-4bit (~4 GB)"
+if [ "$MODEL_SIZE" = "235B" ]; then
+    echo "  Model 1: Qwen3-235B-A22B-4bit (MoE — ~70 GB na disku)"
+    echo "           235B ukupno, samo ~22B aktivno u RAM-u"
+    python3 -c "
+from huggingface_hub import snapshot_download
+try:
+    snapshot_download('mlx-community/Qwen3-235B-A22B-4bit',
+                      local_dir='$INSTALL_DIR/data/models/qwen3-235b-a22b-4bit',
+                      local_dir_use_symlinks=False)
+    print('  ✅ Qwen3-235B-A22B preuzet')
+except Exception as e:
+    print(f'  ⚠️  Qwen3-235B: {e}')
+    print('  Ručno: huggingface-cli download mlx-community/Qwen3-235B-A22B-4bit')
+" 2>/dev/null || echo "  ⚠️  Ručno preuzmite model"
+else
+    echo "  Model 1: Qwen3-30B-A3B-4bit (MoE fallback — ~18 GB)"
+    python3 -c "
+from huggingface_hub import snapshot_download
+try:
+    snapshot_download('mlx-community/Qwen3-30B-A3B-4bit',
+                      local_dir='$INSTALL_DIR/data/models/qwen3-30b-a3b-4bit',
+                      local_dir_use_symlinks=False)
+    print('  ✅ Qwen3-30B-A3B preuzet')
+except Exception as e:
+    print(f'  ⚠️  Qwen3-30B: {e}')
+" 2>/dev/null || echo "  ⚠️  Ručno preuzmite model"
+fi
+
+echo "  Model 2: Qwen3-VL-8B-Instruct-4bit (~5 GB, on-demand OCR)"
 python3 -c "
 from huggingface_hub import snapshot_download
 try:
-    snapshot_download('mlx-community/Qwen2.5-VL-7B-Instruct-4bit',
-                      local_dir='$INSTALL_DIR/data/models/qwen-vl-7b-4bit',
+    snapshot_download('mlx-community/Qwen3-VL-8B-Instruct-4bit',
+                      local_dir='$INSTALL_DIR/data/models/qwen3-vl-8b-4bit',
                       local_dir_use_symlinks=False)
-    print('  ✅ Qwen VL 7B preuzet')
+    print('  ✅ Qwen3-VL-8B preuzet')
 except Exception as e:
-    print(f'  ⚠️  Qwen VL 7B: {e}')
+    print(f'  ⚠️  Qwen3-VL-8B: {e}')
 " 2>/dev/null || echo "  ⚠️  Ručno preuzmite vision model"
 
 # ── 8. Docker servisi (Qdrant + Neo4j) ──
@@ -139,14 +164,22 @@ echo "  ✅ Nyx Light će se automatski pokretati pri boot-u"
 
 # ── 10. vLLM-MLX Server ──
 echo ""
-echo "🔥 Pokretanje vLLM-MLX servera..."
+echo "🔥 Pokretanje vLLM-MLX servera (MoE)..."
+
+if [ "$MODEL_SIZE" = "235B" ]; then
+    VLLM_MODEL="mlx-community/Qwen3-235B-A22B-4bit"
+else
+    VLLM_MODEL="mlx-community/Qwen3-30B-A3B-4bit"
+fi
+
 nohup "$VENV_DIR/bin/mlx_lm.server" \
-    --model mlx-community/Qwen2.5-72B-Instruct-4bit \
+    --model "$VLLM_MODEL" \
     --port 8080 \
     --host 127.0.0.1 \
     --max-concurrency 15 \
     > "$LOG_DIR/vllm.log" 2>&1 &
 echo "  vLLM-MLX PID: $!"
+echo "  Model: $VLLM_MODEL"
 echo "  ✅ vLLM-MLX server pokrenut na portu 8080"
 
 # ── 11. Pokretanje Nyx Light API ──

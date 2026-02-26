@@ -1,22 +1,83 @@
-# Nyx Light — Računovođa Configuration
-# Mac Studio M5 Ultra (192 GB)
+# ═══════════════════════════════════════════════════════════
+# Nyx Light — Računovođa Configuration V1.3
+# Mac Studio M3 Ultra (256 GB Unified Memory)
+# MoE Architecture: Qwen3-235B-A22B
+# ═══════════════════════════════════════════════════════════
 
 hardware:
-  total_memory_gb: 192
-  wired_memory_pct: 0.83
+  target: "Mac Studio M3 Ultra"
+  total_memory_gb: 256
+  wired_memory_pct: 0.83          # 83% za GPU/Neural Engine → ~212 GB
+  wired_memory_gb: 212            # sysctl iogpu.wired_limit_mb=217088
+  ssd_bandwidth_gbs: 7.0          # Kritično za MoE expert swap
   max_users: 15
 
+# ── MoE Memory Budget (Peak) ──────────────────────────────
+# Qwen3-235B-A22B (4-bit, aktivni eksperti):  124 GB
+# Qwen3-VL-8B (OCR, on-demand):                 5 GB
+# Neo4j + Qdrant + 4-Tier Memory:           12–18 GB
+# KV cache (15 konekcija, PagedAttention):   25–35 GB
+# OS + servisi + bufferi:                    12–18 GB
+# ─────────────────────────────────────────────────────────
+# UKUPNO PEAK:                             178–200 GB
+# SLOBODNO:                                  56–78 GB
+# ─────────────────────────────────────────────────────────
+
 models:
-  primary: "mlx-community/Qwen2.5-72B-Instruct-4bit"
-  vision: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
+  # Jezgra sustava — MoE (Mixture of Experts)
+  primary:
+    name: "Qwen3-235B-A22B"
+    hf_repo: "mlx-community/Qwen3-235B-A22B-4bit"
+    total_params_b: 235
+    active_params_b: 22             # Samo ~22B aktivno u svakom trenutku
+    num_experts: 128                # Ukupno eksperata
+    active_experts: 8               # Aktivnih po tokenu (routing bira 8–16)
+    quantization: "4-bit"
+    peak_memory_gb: 124             # Peak za aktivne experte + routing weights
+    architecture: "MoE"
+    role: "Logika, zaključivanje, kontiranje, porezni savjeti"
+
+  # OCR / Vision model — Dense (učitava se on-demand)
+  vision:
+    name: "Qwen3-VL-8B"
+    hf_repo: "mlx-community/Qwen3-VL-8B-Instruct-4bit"
+    total_params_b: 8
+    quantization: "4-bit"
+    peak_memory_gb: 5
+    architecture: "dense"
+    loading_strategy: "on-demand"   # NE drži u RAM-u stalno
+    role: "OCR skenova, PDF računa, slika"
+
+  # Embedding model za RAG
   embedding: "intfloat/multilingual-e5-base"
+
+  # Fallback (ako M3 Ultra nema dovoljno RAM-a)
+  fallback:
+    name: "Qwen3-30B-A3B"          # Manji MoE za low-memory scenarije
+    hf_repo: "mlx-community/Qwen3-30B-A3B-4bit"
+    total_params_b: 30
+    active_params_b: 3
+    peak_memory_gb: 18
+
+# ── Dynamic Memory Management ─────────────────────────────
+memory_management:
+  strategy: "moe_lazy_loading"
+  mlx_lazy_evaluation: true         # Ništa se ne učitava dok nije potrebno
+  paged_attention: true             # KV cache u blokovima
+  ssd_swap_enabled: true            # Neaktivni eksperti → SSD swap
+  ssd_swap_threshold_gb: 200       # Počni swapati kad RAM > 200 GB
+  vision_model_unload_after_s: 300  # Unload OCR modela nakon 5 min neaktivnosti
+  kv_cache_max_gb: 35              # Max KV cache prije eviction-a
+  expert_cache_size: 32             # Koliko eksperata držati "toplo" u RAM-u
 
 vllm:
   host: "127.0.0.1"
   port: 8080
   max_concurrency: 15
   max_tokens: 4096
-  temperature: 0.3  # Niska za preciznost
+  temperature: 0.3                  # Niska za računovodstvenu preciznost
+  moe_offload: true                 # Enable MoE expert offloading
+  gpu_memory_utilization: 0.83      # Koristi do 83% unified memory
 
 api:
   host: "0.0.0.0"
@@ -40,15 +101,25 @@ banks:
     - Addiko
 
 safety:
-  require_human_approval: true  # UVIJEK
-  enable_cloud_apis: false      # NIKADA
+  require_human_approval: true      # UVIJEK — NIKADA NE MIJENJATI
+  enable_cloud_apis: false          # NIKADA — NIKADA NE MIJENJATI
   max_cash_limit_eur: 10000
   km_naknada_eur: 0.30
+  reprezentacija_nepriznato_pct: 50
 
 rag:
+  collection: "hr_zakoni"
+  qdrant_url: "http://localhost:6333"
+  embedding_dim: 384
   laws:
-    - "Zakon o računovodstvu"
-    - "Zakon o PDV-u"
-    - "Zakon o porezu na dobit"
-    - "Zakon o porezu na dohodak"
+    - "Zakon o računovodstvu (NN 78/15)"
+    - "Zakon o PDV-u (NN 73/13)"
+    - "Zakon o porezu na dobit (NN 177/04)"
+    - "Zakon o porezu na dohodak (NN 115/16)"
+    - "Zakon o fiskalizaciji (NN 133/12)"
     - "Mišljenja Porezne uprave"
+
+nightly:
+  dpo_time: "02:00"
+  backup_time: "03:00"
+  backup_keep: 30

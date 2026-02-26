@@ -4,8 +4,8 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "nyx-light-racunovodja"
-version = "1.0.0"
-description = "Privatni ekspertni AI sustav za računovodstvo RH"
+version = "2.0.0"
+description = "Privatni ekspertni AI sustav za računovodstvo i knjigovodstvo RH — 36 modula, dvosmjerna ERP integracija (CPP/Synesis)"
 authors = [{name = "Dr. Mladen Mešter", email = "mladen@nexellum.com"}]
 requires-python = ">=3.11"
 license = {text = "Proprietary"}
@@ -49,3 +49,7 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

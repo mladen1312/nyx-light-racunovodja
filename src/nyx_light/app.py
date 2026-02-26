@@ -25,6 +25,7 @@ from nyx_light.pipeline import BookingPipeline, BookingProposal
 from nyx_light.pipeline.persistent import PersistentPipeline
 from nyx_light.pipeline.persistent import PersistentPipeline
 from nyx_light.export import ERPExporter
+from nyx_light.erp import ERPConnector, ERPConnectionConfig, create_cpp_connector, create_synesis_connector
 from nyx_light.registry import ClientRegistry, ClientConfig
 
 # Moduli — Grupa A
@@ -120,6 +121,9 @@ class NyxLightApp:
             self.pipeline = BookingPipeline(exporter=self.exporter)
         self.registry = ClientRegistry()
         self.overseer = AccountingOverseer()
+
+        # ── Dvosmjerni ERP konektori ──
+        self._erp_connectors: Dict[str, ERPConnector] = {}
 
         # ── Grupa A — Obrada dokumentacije ──
         self.invoice_ocr = InvoiceExtractor()          # A1
@@ -639,6 +643,103 @@ class NyxLightApp:
         )
 
     # ════════════════════════════════════════════════════
+    # ERP DVOSMJERNA KOMUNIKACIJA
+    # ════════════════════════════════════════════════════
+
+    def configure_erp(self, client_id: str, config: ERPConnectionConfig) -> Dict[str, Any]:
+        """Konfiguriraj ERP konekciju za klijenta."""
+        connector = ERPConnector(config)
+        self._erp_connectors[client_id] = connector
+        test = connector.test_connection()
+        return {"client_id": client_id, "erp": config.erp_type,
+                "method": config.method, "auto_book": config.auto_book,
+                "test": test}
+
+    def configure_erp_from_dict(self, client_id: str, cfg: Dict) -> Dict[str, Any]:
+        """Konfiguriraj ERP iz config dict-a (iz config.json)."""
+        config = ERPConnectionConfig(**cfg)
+        return self.configure_erp(client_id, config)
+
+    def get_erp_connector(self, client_id: str) -> Optional[ERPConnector]:
+        """Dohvati konektor za klijenta."""
+        return self._erp_connectors.get(client_id)
+
+    def erp_pull_kontni_plan(self, client_id: str) -> List[Dict]:
+        """Dohvati kontni plan iz ERP-a klijenta."""
+        conn = self._erp_connectors.get(client_id)
+        if not conn:
+            return []
+        return conn.pull_kontni_plan()
+
+    def erp_pull_otvorene_stavke(self, client_id: str,
+                                  konto: str = "", oib: str = "") -> List[Dict]:
+        """Dohvati otvorene stavke iz ERP-a."""
+        conn = self._erp_connectors.get(client_id)
+        if not conn:
+            return []
+        return conn.pull_otvorene_stavke(konto, oib)
+
+    def erp_pull_saldo(self, client_id: str, konto: str) -> Dict[str, Any]:
+        """Dohvati saldo konta iz ERP-a."""
+        conn = self._erp_connectors.get(client_id)
+        if not conn:
+            return {"konto": konto, "saldo": 0, "source": "no_connector"}
+        return conn.pull_saldo_konta(konto)
+
+    def erp_pull_bruto_bilanca(self, client_id: str, period: str = "") -> List[Dict]:
+        """Dohvati bruto bilancu iz ERP-a."""
+        conn = self._erp_connectors.get(client_id)
+        if not conn:
+            return []
+        return conn.pull_bruto_bilanca(period)
+
+    def erp_pull_partner_kartice(self, client_id: str, oib: str) -> List[Dict]:
+        """Dohvati karticu partnera iz ERP-a."""
+        conn = self._erp_connectors.get(client_id)
+        if not conn:
+            return []
+        return conn.pull_partner_kartice(oib)
+
+    def erp_scan_watch_folder(self, client_id: str) -> List[Dict]:
+        """Skeniraj watch folder klijenta za nove dokumente."""
+        conn = self._erp_connectors.get(client_id)
+        if not conn:
+            return []
+        return conn.scan_watch_folder()
+
+    def erp_push_auto(self, client_id: str, bookings: List[Dict],
+                       confidence: float) -> Dict[str, Any]:
+        """Autonomno knjiženje — AI samostalno šalje u ERP.
+
+        ZAHTIJEVA:
+        - auto_book=True u konfiguraciji klijenta
+        - confidence >= min_confidence (default 0.95)
+        - iznos <= max_amount (default 50k EUR)
+        - OVERSEER sigurnosne granice prolaze
+        """
+        conn = self._erp_connectors.get(client_id)
+        if not conn:
+            return {"status": "error", "reason": "Nema ERP konektora za klijenta"}
+
+        # OVERSEER provjera svake stavke
+        for b in bookings:
+            opis = b.get("opis", "")
+            safety = self.overseer.evaluate(opis)
+            if not safety["approved"]:
+                return {"status": "blocked_overseer",
+                        "reason": safety.get("message", "OVERSEER blokirao"),
+                        "booking": opis}
+
+        return conn.push_auto(bookings, client_id, confidence)
+
+    def erp_get_audit_log(self, client_id: str) -> List[Dict]:
+        """Audit log autonomnih knjiženja."""
+        conn = self._erp_connectors.get(client_id)
+        if not conn:
+            return []
+        return conn.get_audit_log()
+
+    # ════════════════════════════════════════════════════
     # STATUS & PREGLED
     # ════════════════════════════════════════════════════
 
@@ -678,6 +779,9 @@ class NyxLightApp:
                 "blagajna": self.blagajna.get_stats(),
                 "putni_nalozi": self.putni_nalozi.get_stats(),
                 "kpi": self.kpi.get_stats(),
+                "erp_connectors": {
+                    cid: c.get_stats() for cid, c in self._erp_connectors.items()
+                },
             },
             "kontni_plan_konta": len(self.kontni_plan),
         }

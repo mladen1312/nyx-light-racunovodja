@@ -283,6 +283,50 @@ def register_routes(app):
             "overseer": state.overseer.get_stats() if state.overseer else None,
         }
 
+    @app.get("/api/v1/monitor")
+    async def monitor():
+        """Kompletni zdravstveni izvještaj sustava."""
+        from ..monitoring.health import SystemMonitor
+        mon = SystemMonitor()
+        report = mon.get_full_report()
+        report["sessions"] = state.sessions.get_stats() if state.sessions else None
+        return report
+
+    @app.post("/api/v1/upload")
+    async def upload_file(request: Request):
+        """Učitaj dokument (PDF, CSV, MT940, Excel)."""
+        import aiofiles
+        from fastapi import UploadFile, File
+
+        form = await request.form()
+        file = form.get("file")
+        if not file:
+            return {"error": "Nema datoteke"}
+
+        upload_dir = Path("data/uploads")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        filepath = upload_dir / file.filename
+        content = await file.read()
+        filepath.write_bytes(content)
+
+        # Auto-detect i obradi
+        result = {"filename": file.filename, "size_kb": round(len(content) / 1024, 1)}
+
+        suffix = Path(file.filename).suffix.lower()
+        if suffix in (".sta", ".mt940", ".csv") and state.bank_parser:
+            parsed = state.bank_parser.parse_file(str(filepath))
+            result["type"] = "bank_statement"
+            result["transactions"] = len(parsed.get("transactions", []))
+        elif suffix in (".pdf", ".jpg", ".png") and state.invoice_ocr:
+            extracted = state.invoice_ocr.extract(str(filepath))
+            result["type"] = "invoice"
+            result["extracted"] = extracted
+        elif suffix in (".xlsx", ".xls"):
+            result["type"] = "excel"
+
+        return result
+
     @app.websocket("/ws/chat")
     async def websocket_chat(websocket: WebSocket):
         """WebSocket za streaming chat."""

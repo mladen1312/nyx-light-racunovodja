@@ -1,0 +1,46 @@
+# Zakon o porezu na dodanu vrijednost (NN 73/13)
+# NAPOMENA: Ovo je skraćeni placeholder za testiranje RAG sustava.
+# Za produkciju, učitajte puni tekst zakona iz Narodnih Novina.
+
+Članak 1.
+Ovim se Zakonom uređuje sustav poreza na dodanu vrijednost.
+
+Članak 2.
+Predmet oporezivanja PDV-om je:
+1) isporuka dobara u tuzemstvu uz naknadu koju obavi porezni obveznik koji djeluje kao takav,
+2) stjecanje dobara unutar Europske unije u tuzemstvu uz naknadu,
+3) uvoz dobara.
+
+Članak 38.
+Porezna osnovica pri isporuci dobara i usluga je naknada koju čini sve ono što je isporučitelj primio ili treba primiti od kupca ili treće strane za te isporuke.
+
+Članak 39.
+Stopa PDV-a iznosi 25%.
+
+Članak 40.
+PDV se obračunava po sniženoj stopi od 13% na:
+a) usluge smještaja ili smještaja s doručkom, polupansiona ili punog pansiona u svim vrstama komercijalnih ugostiteljskih objekata,
+b) novine i časopise novinskog nakladnika,
+c) jestiva ulja i masti, biljnog i životinjskog podrijetla.
+
+Članak 40a.
+PDV se obračunava po sniženoj stopi od 5% na:
+a) sve vrste kruha,
+b) sve vrste mlijeka,
+c) knjige,
+d) lijekove,
+e) medicinsku opremu.
+
+Članak 58.
+Porezni obveznik mora izdati račun za svaku isporuku dobara i usluga.
+
+Članak 63.
+Porezni obveznik mora na računu navesti:
+1) broj računa,
+2) datum izdavanja,
+3) ime i prezime (naziv), adresu, OIB isporučitelja,
+4) ime i prezime (naziv), adresu, OIB primatelja,
+5) količinu i uobičajeni trgovački naziv isporučenih dobara,
+6) iznos naknade,
+7) stopu PDV-a,
+8) iznos PDV-a.

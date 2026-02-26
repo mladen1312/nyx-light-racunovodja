@@ -1,0 +1,26 @@
+# Zakon o računovodstvu (NN 78/15)
+# NAPOMENA: Skraćeni placeholder za testiranje.
+
+Članak 1.
+Ovim Zakonom uređuje se računovodstvo poduzetnika, razvrstavanje poduzetnika i grupa poduzetnika, računovodstvene isprave i poslovne knjige, popis imovine i obveza, primjena standarda financijskog izvještavanja te javna objava godišnjih financijskih izvještaja.
+
+Članak 5.
+Poduzetnici se razvrstavaju na mikro, male, srednje i velike poduzetnike.
+
+Članak 7.
+Poduzetnik je dužan prikupljati i sastavljati računovodstvene isprave, voditi poslovne knjige te sastavljati financijske izvještaje.
+
+Članak 9.
+Poslovne knjige jesu dnevnik, glavna knjiga i pomoćne knjige.
+
+Članak 10.
+Dnevnik je poslovna knjiga u koju se unose poslovni događaji kronološkim redom.
+
+Članak 11.
+Glavna knjiga je sustavna evidencija poslovnih događaja nastalih na imovini, obvezama, kapitalu, prihodima i rashodima.
+
+Članak 14.
+Računovodstvene isprave moraju se čuvati najmanje:
+a) trajno — za godišnje financijske izvještaje
+b) najmanje 11 godina — za dnevnik i glavnu knjigu
+c) najmanje 7 godina — za pomoćne knjige i isprave

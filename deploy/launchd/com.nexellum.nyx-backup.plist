@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Nyx Light — Nightly Backup (03:00)
+  sudo cp com.nexellum.nyx-backup.plist /Library/LaunchDaemons/
+  sudo launchctl load /Library/LaunchDaemons/com.nexellum.nyx-backup.plist
+-->
+<dict>
+    <key>Label</key>
+    <string>com.nexellum.nyx-backup</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/nyx-light/venv/bin/python</string>
+        <string>-m</string>
+        <string>scripts.backup</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/opt/nyx-light</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/var/log/nyx-light/backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/nyx-light/backup_err.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>/opt/nyx-light/src</string>
+    </dict>
+</dict>
+</plist>

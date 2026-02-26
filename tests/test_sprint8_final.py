@@ -261,6 +261,41 @@ class TestE2ESprint8:
         assert result["bolovanje"]["teret_hzzo"] > 0
         assert result["bolovanje"]["dani_poslodavac"] == 0
 
+    def test_drugi_dohodak_ugovor_e2e(self):
+        result = self.app.process_drugi_dohodak(
+            "Ivan P.", "11111111119", 1000.0, "ugovor_o_djelu", "DOO-001",
+        )
+        assert result["status"] == "pending"
+        assert result["obracun"]["bruto"] == 1000.0
+        assert result["obracun"]["neto"] < 1000.0
+        assert result["obracun"]["ukupni_trosak"] > 1000.0  # +zdravstveno
+
+    def test_drugi_dohodak_autorski_e2e(self):
+        result = self.app.process_drugi_dohodak(
+            "Ana K.", "22222222228", 2000.0, "autorski_honorar", "DOO-001",
+        )
+        assert result["obracun"]["neto"] > 0
+        # Autorski ima neoporezivi dio → veći neto od ugovora o djelu
+        ugovor = self.app.process_drugi_dohodak(
+            "Ana K.", "22222222228", 2000.0, "ugovor_o_djelu", "DOO-001",
+        )
+        assert result["obracun"]["neto"] > ugovor["obracun"]["neto"]
+
+    def test_novcani_tokovi_e2e(self):
+        from nyx_light.modules.novcani_tokovi import CashFlowData
+        cf = CashFlowData(
+            neto_dobit=100_000, amortizacija=20_000, porez_na_dobit=18_000,
+            promjena_zaliha=5_000, promjena_potrazivanja=10_000,
+            promjena_obveze_dobavljaci=8_000,
+            kupnja_materijalne_imovine=50_000,
+            primljeni_krediti=30_000, otplata_kredita=10_000,
+            placene_kamate=3_000, novac_pocetak=50_000,
+        )
+        result = self.app.prepare_novcani_tokovi("DOO-001", 2025, cf)
+        assert result["obrazac"] == "NTI"
+        assert result["A_poslovne"] > 0  # Profitable company → positive operating CF
+        assert result["novac_kraj"] > 0
+
     def test_kpi_e2e(self):
         from nyx_light.modules.kpi import FinancialData
         data = FinancialData(
@@ -281,4 +316,119 @@ class TestE2ESprint8:
         assert "porez_dobit" in status["modules"]
         assert "porez_dohodak" in status["modules"]
         assert "bolovanje" in status["modules"]
+        assert "drugi_dohodak" in status["modules"]
+        assert "novcani_tokovi" in status["modules"]
         assert "kpi" in status["modules"]
+
+
+class TestDrugiDohodak:
+    """Autorski honorari i ugovori o djelu."""
+
+    def setup_method(self):
+        from nyx_light.modules.drugi_dohodak import DrugiDohodakEngine
+        self.engine = DrugiDohodakEngine()
+
+    def test_ugovor_o_djelu(self):
+        r = self.engine.calculate("Test", "123", 1000.0, "ugovor_o_djelu", "Zagreb")
+        assert r.dohodak == 1000.0  # Nema neoporezivog dijela
+        assert r.neoporezivi_dio == 0.0
+        assert r.mio_1 == 150.0  # 15% od 1000
+        assert r.mio_2 == 50.0   # 5% od 1000
+        assert r.neto > 0 and r.neto < 1000
+
+    def test_autorski_honorar_30pct_neoporezivo(self):
+        r = self.engine.calculate("Test", "123", 1000.0, "autorski_honorar")
+        assert r.neoporezivi_dio == 300.0  # 30%
+        assert r.dohodak == 700.0
+        assert r.mio_1 == 105.0  # 15% od 700
+        assert r.neto > 0
+
+    def test_autorski_veci_neto(self):
+        """Autorski ima veći neto od ugovora o djelu (isti bruto)."""
+        aut = self.engine.calculate("T", "1", 2000.0, "autorski_honorar")
+        ugo = self.engine.calculate("T", "1", 2000.0, "ugovor_o_djelu")
+        assert aut.neto > ugo.neto
+
+    def test_zdravstveno_na_teret_isplatitelja(self):
+        r = self.engine.calculate("Test", "123", 1000.0, "ugovor_o_djelu")
+        assert r.zdravstveno == 75.0  # 7.5% od 1000
+        assert r.ukupni_trosak == 1075.0  # bruto + zdravstveno
+
+    def test_booking_lines(self):
+        r = self.engine.calculate("Test", "123", 1000.0, "autorski_honorar")
+        lines = self.engine.booking_lines(r)
+        assert len(lines) >= 4
+        kontos = [l["konto"] for l in lines]
+        assert "5270" in kontos  # Autorski konto
+
+    def test_joppd_data(self):
+        r = self.engine.calculate("Test", "123", 1000.0, "autorski_honorar")
+        j = self.engine.joppd_data(r)
+        assert j["oznaka_primitka"] == "5012"
+        assert j["neoporezivi_primitak"] == 300.0
+
+
+class TestNovcanitTokovi:
+    """NTI Obrazac — novčani tokovi."""
+
+    def setup_method(self):
+        from nyx_light.modules.novcani_tokovi import NovcanitTokoviEngine, CashFlowData
+        self.engine = NovcanitTokoviEngine()
+        self.CashFlowData = CashFlowData
+
+    def test_basic_positive_cf(self):
+        cf = self.CashFlowData(
+            neto_dobit=100_000, amortizacija=20_000, porez_na_dobit=18_000,
+            novac_pocetak=50_000,
+        )
+        nti = self.engine.calculate(2025, cf)
+        assert nti.neto_poslovne > 0
+        assert nti.novac_kraj > nti.novac_pocetak
+
+    def test_operating_with_working_capital(self):
+        cf = self.CashFlowData(
+            neto_dobit=80_000, amortizacija=15_000, porez_na_dobit=14_400,
+            promjena_zaliha=20_000,  # Povećanje zaliha = odljev
+            promjena_potrazivanja=10_000,  # Povećanje potraživanja = odljev
+            promjena_obveze_dobavljaci=5_000,  # Povećanje obveza = priljev
+            novac_pocetak=30_000,
+        )
+        nti = self.engine.calculate(2025, cf)
+        # Promjene radnog kapitala smanjuju poslovni CF
+        assert nti.promjene_radnog_kapitala < 0
+
+    def test_investment_outflow(self):
+        cf = self.CashFlowData(
+            neto_dobit=50_000, kupnja_materijalne_imovine=100_000,
+        )
+        nti = self.engine.calculate(2025, cf)
+        assert nti.neto_investicijske == -100_000
+
+    def test_financing_inflow(self):
+        cf = self.CashFlowData(
+            neto_dobit=20_000,
+            primljeni_krediti=200_000, otplata_kredita=50_000,
+            placene_kamate=8_000,
+        )
+        nti = self.engine.calculate(2025, cf)
+        assert nti.neto_financijske == 142_000  # 200-50-8
+
+    def test_to_dict(self):
+        cf = self.CashFlowData(neto_dobit=50_000, novac_pocetak=10_000)
+        nti = self.engine.calculate(2025, cf)
+        d = self.engine.to_dict(nti)
+        assert d["obrazac"] == "NTI"
+        assert "detalji" in d
+        assert d["requires_approval"] is True
+
+    def test_neto_promjena_equals_abc(self):
+        cf = self.CashFlowData(
+            neto_dobit=100_000, amortizacija=10_000, porez_na_dobit=18_000,
+            kupnja_materijalne_imovine=30_000,
+            primljeni_krediti=50_000, placene_kamate=5_000,
+            novac_pocetak=100_000,
+        )
+        nti = self.engine.calculate(2025, cf)
+        expected = nti.neto_poslovne + nti.neto_investicijske + nti.neto_financijske
+        assert abs(nti.neto_promjena_novca - expected) < 0.01
+        assert abs(nti.novac_kraj - (100_000 + nti.neto_promjena_novca)) < 0.01

@@ -53,9 +53,13 @@ from nyx_light.modules.gfi_prep import GFIPrepEngine
 
 # Moduli — Grupa B+
 from nyx_light.modules.bolovanje import BolovanjeEngine
+from nyx_light.modules.drugi_dohodak import DrugiDohodakEngine
 
 # Moduli — Grupa G
 from nyx_light.modules.kpi import KPIDashboard
+
+# Moduli — Grupa D extra
+from nyx_light.modules.novcani_tokovi import NovcanitTokoviEngine
 
 # Moduli — Grupa F
 from nyx_light.modules.deadlines import DeadlineTracker
@@ -127,11 +131,15 @@ class NyxLightApp:
         # ── Grupa D — GFI ──
         self.gfi = GFIPrepEngine()
 
-        # ── Grupa B+ — Bolovanje ──
+        # ── Grupa B+ — Bolovanje, Drugi dohodak ──
         self.bolovanje = BolovanjeEngine()
+        self.drugi_dohodak = DrugiDohodakEngine()
 
         # ── Grupa G — KPI ──
         self.kpi = KPIDashboard()
+
+        # ── Grupa D extra — Novčani tokovi ──
+        self.novcani_tokovi = NovcanitTokoviEngine()
 
         # ── Grupa F — Rokovi ──
         self.deadlines = DeadlineTracker()
@@ -429,6 +437,51 @@ class NyxLightApp:
         return submit
 
     # ════════════════════════════════════════════════════
+    # B+: DRUGI DOHODAK (Autorski honorari, Ugovor o djelu)
+    # ════════════════════════════════════════════════════
+
+    def process_drugi_dohodak(
+        self, ime: str, oib: str, bruto: float,
+        vrsta: str, client_id: str, grad: str = "Zagreb",
+    ) -> Dict[str, Any]:
+        """Obračun autorskog honorara ili ugovora o djelu → Pipeline."""
+        erp = self.get_client_erp(client_id)
+        result = self.drugi_dohodak.calculate(ime, oib, bruto, vrsta, grad)
+        lines = self.drugi_dohodak.booking_lines(result)
+
+        proposal = BookingProposal(
+            client_id=client_id,
+            document_type="drugi_dohodak",
+            erp_target=erp,
+            lines=lines,
+            opis=f"{vrsta}: {ime} — bruto {bruto:.2f} EUR",
+            ukupni_iznos=result.ukupni_trosak,
+            confidence=0.95,
+            source_module="drugi_dohodak",
+            warnings=result.warnings,
+        )
+        submit = self._submit(proposal)
+        submit["obracun"] = {
+            "bruto": result.bruto,
+            "neto": result.neto,
+            "mio": result.ukupno_mio,
+            "porez_prirez": result.ukupno_porez_prirez,
+            "zdravstveno_isplatitelj": result.zdravstveno,
+            "ukupni_trosak": result.ukupni_trosak,
+        }
+        return submit
+
+    # ════════════════════════════════════════════════════
+    # D: NOVČANI TOKOVI (NTI Obrazac)
+    # ════════════════════════════════════════════════════
+
+    def prepare_novcani_tokovi(self, client_id: str, godina: int,
+                                cf_data) -> Dict[str, Any]:
+        """Pripremi NTI obrazac."""
+        nti = self.novcani_tokovi.calculate(godina, cf_data)
+        return self.novcani_tokovi.to_dict(nti)
+
+    # ════════════════════════════════════════════════════
     # G: KPI DASHBOARD
     # ════════════════════════════════════════════════════
 
@@ -519,6 +572,8 @@ class NyxLightApp:
                 "porez_dobit": self.porez_dobit.get_stats(),
                 "porez_dohodak": self.porez_dohodak.get_stats(),
                 "bolovanje": self.bolovanje.get_stats(),
+                "drugi_dohodak": self.drugi_dohodak.get_stats(),
+                "novcani_tokovi": self.novcani_tokovi.get_stats(),
                 "osnovna_sredstva": self.osnovna_sredstva.get_stats(),
                 "deadlines": self.deadlines.get_stats(),
                 "blagajna": self.blagajna.get_stats(),

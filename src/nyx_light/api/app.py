@@ -35,9 +35,11 @@ class AppState:
         self.bank_parser = None
         self.invoice_ocr = None
         self.ios_module = None
+        self.exporter = None
+        self.sessions = None
+        self.storage = None
         self.start_time = datetime.now(timezone.utc)
         self.request_count = 0
-        self.active_sessions = {}
 
 
 state = AppState()
@@ -53,6 +55,9 @@ async def lifespan(app):
     from ..safety.overseer import AccountingOverseer
     from ..modules.bank_parser.parser import BankStatementParser
     from ..modules.invoice_ocr.extractor import InvoiceExtractor
+    from ..export import ERPExporter
+    from ..sessions.manager import SessionManager
+    from ..storage.sqlite_store import SQLiteStorage
     from ..core.config import config
 
     config.ensure_dirs()
@@ -62,6 +67,9 @@ async def lifespan(app):
     state.overseer = AccountingOverseer()
     state.bank_parser = BankStatementParser()
     state.invoice_ocr = InvoiceExtractor()
+    state.exporter = ERPExporter()
+    state.sessions = SessionManager(max_sessions=15)
+    state.storage = SQLiteStorage()
 
     logger.info("✅ Svi moduli inicijalizirani")
     yield
@@ -97,7 +105,15 @@ def register_routes(app):
 
     @app.get("/", response_class=HTMLResponse)
     async def root():
-        return """
+        """Serve dashboard UI."""
+        import os
+        dashboard_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+            "dashboard", "index.html"
+        )
+        if os.path.exists(dashboard_path):
+            return HTMLResponse(content=open(dashboard_path).read())
+        return HTMLResponse("""
         <html><head><title>Nyx Light — Računovođa</title></head>
         <body style="font-family:system-ui;max-width:800px;margin:40px auto;padding:20px;">
         <h1>🌙 Nyx Light — Računovođa</h1>
@@ -107,9 +123,9 @@ def register_routes(app):
             <li><a href="/health">❤️ Health Check</a></li>
             <li><a href="/api/v1/stats">📊 Statistika</a></li>
         </ul>
-        <p><em>© 2026 Dr. Mladen Mešter | Nexellum Lab d.o.o.</em></p>
+        <p><em>Dashboard UI nije pronađen. Provjerite dashboard/index.html</em></p>
         </body></html>
-        """
+        """)
 
     @app.get("/health")
     async def health():
@@ -209,23 +225,62 @@ def register_routes(app):
         """Generiraj izvoznu datoteku za CPP/Synesis."""
         body = await request.json()
         bookings = body.get("bookings", [])
+        client_id = body.get("client_id", "default")
+        fmt = body.get("format", "XML")
 
-        return {
-            "status": "exported",
-            "erp": erp_system.upper(),
-            "format": "XML" if erp_system == "cpp" else "CSV",
-            "records": len(bookings),
-            "file_path": f"data/exports/{erp_system}_export_{int(time.time())}.xml",
-        }
+        if state.exporter:
+            result = state.exporter.export(bookings, client_id, erp=erp_system, fmt=fmt)
+            return result
+
+        return {"status": "error", "message": "Exporter nije inicijaliziran"}
+
+    @app.get("/api/v1/sessions")
+    async def active_sessions():
+        """Prikaži aktivne sesije (15 korisnika max)."""
+        if state.sessions:
+            return {
+                "sessions": state.sessions.get_active_sessions(),
+                "stats": state.sessions.get_stats(),
+            }
+        return {"sessions": [], "stats": {}}
+
+    @app.get("/api/v1/bookings/pending")
+    async def pending_bookings(client_id: str = ""):
+        """Dohvati knjiženja koja čekaju odobrenje."""
+        if state.storage:
+            return {"bookings": state.storage.get_pending_bookings(client_id)}
+        return {"bookings": []}
+
+    @app.post("/api/v1/booking/correct")
+    async def correct_booking(request: Request):
+        """Zabilježi ispravak knjiženja — temelj za L2 učenje."""
+        body = await request.json()
+        if state.storage:
+            state.storage.save_correction(body)
+        if state.memory:
+            state.memory.record_correction(
+                user_id=body.get("user_id", ""),
+                client_id=body.get("client_id", ""),
+                original_konto=body.get("original_konto", ""),
+                corrected_konto=body.get("corrected_konto", ""),
+                document_type=body.get("document_type", ""),
+                supplier=body.get("supplier", ""),
+            )
+        return {"status": "correction_recorded"}
 
     @app.get("/api/v1/stats")
     async def stats():
         return {
             "version": "1.0.0",
+            "sustav": "Nyx Light — Računovođa",
             "uptime_s": (datetime.now(timezone.utc) - state.start_time).total_seconds(),
             "requests": state.request_count,
             "llm": state.llm.get_stats() if state.llm else None,
             "memory": state.memory.get_stats() if state.memory else None,
+            "sessions": state.sessions.get_stats() if state.sessions else None,
+            "storage": state.storage.get_stats() if state.storage else None,
+            "exporter": state.exporter.get_stats() if state.exporter else None,
+            "overseer": state.overseer.get_stats() if state.overseer else None,
         }
 
     @app.websocket("/ws/chat")

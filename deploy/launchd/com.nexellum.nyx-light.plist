@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Nyx Light — Računovođa: macOS LaunchDaemon
+  
+  Auto-start na Mac Studio M5 Ultra boot.
+  Instalacija:
+    sudo cp com.nexellum.nyx-light.plist /Library/LaunchDaemons/
+    sudo launchctl load /Library/LaunchDaemons/com.nexellum.nyx-light.plist
+-->
+<dict>
+    <key>Label</key>
+    <string>com.nexellum.nyx-light</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/nyx-light/venv/bin/python</string>
+        <string>-m</string>
+        <string>nyx_light.main</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>8000</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/opt/nyx-light</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>StandardOutPath</key>
+    <string>/var/log/nyx-light/stdout.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/var/log/nyx-light/stderr.log</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NYX_ENV</key>
+        <string>production</string>
+        <key>PYTHONPATH</key>
+        <string>/opt/nyx-light/src</string>
+    </dict>
+</dict>
+</plist>

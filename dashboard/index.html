@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nyx Light — Računovođa</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface2: #252832;
+            --border: #2e3140;
+            --text: #e4e6eb;
+            --text-muted: #8b8fa3;
+            --accent: #6c63ff;
+            --accent-light: #8b85ff;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --sidebar-w: 280px;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-w);
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+        .sidebar-header h1 {
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .sidebar-header .version {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .sidebar-nav {
+            flex: 1;
+            padding: 12px;
+            overflow-y: auto;
+        }
+        .nav-section {
+            margin-bottom: 16px;
+        }
+        .nav-section-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            padding: 8px 12px;
+            letter-spacing: 0.5px;
+        }
+        .nav-item {
+            padding: 10px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            transition: background 0.15s;
+        }
+        .nav-item:hover { background: var(--surface2); }
+        .nav-item.active { background: var(--accent); color: white; }
+        .nav-item .icon { font-size: 18px; }
+        .sidebar-footer {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+        .status-dot.online { background: var(--success); }
+        .status-dot.offline { background: var(--danger); }
+
+        /* Main */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .main-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .main-header h2 { font-size: 16px; font-weight: 600; }
+        .user-badge {
+            background: var(--surface2);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Chat */
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 12px;
+            max-width: 85%;
+        }
+        .message.user { margin-left: auto; flex-direction: row-reverse; }
+        .message-avatar {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .message.assistant .message-avatar {
+            background: var(--accent);
+        }
+        .message.user .message-avatar {
+            background: var(--surface2);
+        }
+        .message-content {
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .message.assistant .message-content {
+            background: var(--surface);
+            border: 1px solid var(--border);
+        }
+        .message.user .message-content {
+            background: var(--accent);
+            color: white;
+        }
+        .message-content .warning {
+            background: rgba(245, 158, 11, 0.15);
+            border-left: 3px solid var(--warning);
+            padding: 8px 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .message-content .hard-block {
+            background: rgba(239, 68, 68, 0.15);
+            border-left: 3px solid var(--danger);
+            padding: 8px 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .approval-btn {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            margin: 4px;
+            transition: opacity 0.15s;
+        }
+        .approval-btn:hover { opacity: 0.85; }
+        .approval-btn.approve { background: var(--success); color: white; }
+        .approval-btn.reject { background: var(--danger); color: white; }
+        .approval-btn.edit { background: var(--surface2); color: var(--text); }
+
+        /* Input */
+        .chat-input {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+        .chat-input textarea {
+            flex: 1;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: var(--text);
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            min-height: 44px;
+            max-height: 120px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .chat-input textarea:focus { border-color: var(--accent); }
+        .chat-input textarea::placeholder { color: var(--text-muted); }
+        .send-btn {
+            width: 44px; height: 44px;
+            border-radius: 12px;
+            background: var(--accent);
+            border: none;
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s;
+            flex-shrink: 0;
+        }
+        .send-btn:hover { background: var(--accent-light); }
+        .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* Quick Actions */
+        .quick-actions {
+            padding: 8px 24px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .quick-action {
+            padding: 6px 14px;
+            border-radius: 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .quick-action:hover {
+            background: var(--surface2);
+            color: var(--text);
+            border-color: var(--accent);
+        }
+
+        /* Upload area */
+        .upload-area {
+            padding: 4px 24px 8px;
+        }
+        .upload-btn {
+            background: var(--surface);
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            padding: 8px 16px;
+            color: var(--text-muted);
+            font-size: 12px;
+            cursor: pointer;
+            width: 100%;
+            text-align: center;
+        }
+        .upload-btn:hover { border-color: var(--accent); color: var(--text); }
+
+        /* Typing indicator */
+        .typing {
+            display: flex;
+            gap: 4px;
+            padding: 4px 0;
+        }
+        .typing span {
+            width: 6px; height: 6px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+        .typing span:nth-child(2) { animation-delay: 0.16s; }
+        .typing span:nth-child(3) { animation-delay: 0.32s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h1>🌙 Nyx Light</h1>
+            <div class="version">Računovođa v1.0.0</div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Razgovor</div>
+                <div class="nav-item active" onclick="switchView('chat')">
+                    <span class="icon">💬</span> Chat asistent
+                </div>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Moduli</div>
+                <div class="nav-item" onclick="switchView('bank')">
+                    <span class="icon">🏦</span> Bankovni izvodi
+                </div>
+                <div class="nav-item" onclick="switchView('invoice')">
+                    <span class="icon">📄</span> Ulazni računi
+                </div>
+                <div class="nav-item" onclick="switchView('ios')">
+                    <span class="icon">📋</span> IOS usklađivanja
+                </div>
+                <div class="nav-item" onclick="switchView('kontiranje')">
+                    <span class="icon">📒</span> Kontiranje
+                </div>
+                <div class="nav-item" onclick="switchView('blagajna')">
+                    <span class="icon">💰</span> Blagajna
+                </div>
+                <div class="nav-item" onclick="switchView('putni')">
+                    <span class="icon">🚗</span> Putni nalozi
+                </div>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Sustav</div>
+                <div class="nav-item" onclick="switchView('rag')">
+                    <span class="icon">⚖️</span> Pravna baza (RAG)
+                </div>
+                <div class="nav-item" onclick="switchView('export')">
+                    <span class="icon">📤</span> Izvoz (CPP/Synesis)
+                </div>
+                <div class="nav-item" onclick="switchView('stats')">
+                    <span class="icon">📊</span> Statistika
+                </div>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot online" id="statusDot"></span>
+            <span id="statusText">vLLM-MLX aktivan</span>
+            <br><br>
+            <small>© 2026 Nexellum Lab d.o.o.</small>
+        </div>
+    </aside>
+
+    <main class="main">
+        <div class="main-header">
+            <h2 id="viewTitle">💬 Chat asistent</h2>
+            <div class="user-badge">
+                <span>👤</span>
+                <span id="userName">Korisnik</span>
+            </div>
+        </div>
+
+        <div class="chat-area" id="chatArea">
+            <div class="message assistant">
+                <div class="message-avatar">🌙</div>
+                <div class="message-content">
+                    Dobar dan! Ja sam <strong>Nyx Light — Računovođa</strong>, vaš AI asistent za računovodstvo i knjigovodstvo.<br><br>
+                    Možete me pitati o:
+                    <ul style="margin:8px 0 0 20px;">
+                        <li>Kontiranju i knjiženjima</li>
+                        <li>PDV-u, porezu na dobit/dohodak</li>
+                        <li>Bankovnim izvodima i sparivanju</li>
+                        <li>Propisima i zakonima RH</li>
+                    </ul>
+                    <br>
+                    <em style="color:var(--text-muted);">Napomena: Svi predloženi unosi zahtijevaju vaše odobrenje prije knjiženja.</em>
+                </div>
+            </div>
+        </div>
+
+        <div class="quick-actions" id="quickActions">
+            <span class="quick-action" onclick="sendQuick('Koji konto za uredski materijal?')">📒 Konto za uredski materijal</span>
+            <span class="quick-action" onclick="sendQuick('Koji je limit za blagajnu?')">💰 Limit blagajne</span>
+            <span class="quick-action" onclick="sendQuick('Kolika je km-naknada za putni nalog?')">🚗 Km-naknada</span>
+            <span class="quick-action" onclick="sendQuick('Koja je stopa PDV-a na usluge?')">📊 PDV stopa</span>
+            <span class="quick-action" onclick="sendQuick('Kako proknjižiti reprezentaciju?')">🍽️ Reprezentacija</span>
+        </div>
+
+        <div class="upload-area">
+            <label class="upload-btn" for="fileUpload">
+                📎 Učitaj dokument (PDF, CSV, MT940, Excel)
+                <input type="file" id="fileUpload" style="display:none" accept=".pdf,.csv,.sta,.mt940,.xlsx,.xls,.jpg,.png" onchange="handleUpload(this)">
+            </label>
+        </div>
+
+        <div class="chat-input">
+            <textarea id="chatInput" placeholder="Postavite pitanje o računovodstvu..." rows="1"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"
+                oninput="autoResize(this)"></textarea>
+            <button class="send-btn" onclick="sendMessage()" id="sendBtn">➤</button>
+        </div>
+    </main>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let isGenerating = false;
+
+        function autoResize(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+        }
+
+        function addMessage(role, content, extra = '') {
+            const chatArea = document.getElementById('chatArea');
+            const avatar = role === 'assistant' ? '🌙' : '👤';
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.innerHTML = `
+                <div class="message-avatar">${avatar}</div>
+                <div class="message-content">${content}${extra}</div>
+            `;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
+            return div;
+        }
+
+        function addTypingIndicator() {
+            const chatArea = document.getElementById('chatArea');
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.id = 'typingIndicator';
+            div.innerHTML = `
+                <div class="message-avatar">🌙</div>
+                <div class="message-content">
+                    <div class="typing"><span></span><span></span><span></span></div>
+                </div>
+            `;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function removeTypingIndicator() {
+            const el = document.getElementById('typingIndicator');
+            if (el) el.remove();
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            if (!message || isGenerating) return;
+
+            input.value = '';
+            input.style.height = 'auto';
+            isGenerating = true;
+            document.getElementById('sendBtn').disabled = true;
+
+            addMessage('user', escapeHtml(message));
+            addTypingIndicator();
+
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: message,
+                        user_id: document.getElementById('userName').textContent,
+                    })
+                });
+
+                removeTypingIndicator();
+
+                if (response.ok) {
+                    const data = await response.json();
+                    let content = escapeHtml(data.response).replace(/\n/g, '<br>');
+
+                    // Dodaj approval buttone ako je prijedlog knjiženja
+                    let extra = '';
+                    if (data.response.includes('knjiženje') || data.response.includes('konto')) {
+                        extra = `
+                            <div style="margin-top:12px;">
+                                <button class="approval-btn approve" onclick="approveBooking(this)">✅ Odobri</button>
+                                <button class="approval-btn edit" onclick="editBooking(this)">✏️ Ispravi</button>
+                                <button class="approval-btn reject" onclick="rejectBooking(this)">❌ Odbij</button>
+                            </div>
+                        `;
+                    }
+
+                    addMessage('assistant', content, extra);
+                } else {
+                    addMessage('assistant',
+                        '<span style="color:var(--danger)">Greška pri komunikaciji sa serverom. Provjerite je li Nyx Light pokrenut.</span>'
+                    );
+                }
+            } catch (err) {
+                removeTypingIndicator();
+                addMessage('assistant',
+                    `<span style="color:var(--danger)">Nemoguće spojiti se na server (${API_BASE}). Pokrenite: python -m nyx_light.main</span>`
+                );
+            }
+
+            isGenerating = false;
+            document.getElementById('sendBtn').disabled = false;
+            input.focus();
+        }
+
+        function sendQuick(text) {
+            document.getElementById('chatInput').value = text;
+            sendMessage();
+        }
+
+        function approveBooking(btn) {
+            const content = btn.closest('.message-content');
+            btn.parentElement.innerHTML = '<div style="color:var(--success);margin-top:8px;">✅ <strong>Knjiženje odobreno</strong> — spremno za izvoz u ERP</div>';
+        }
+
+        function editBooking(btn) {
+            const content = btn.closest('.message-content');
+            btn.parentElement.innerHTML = '<div style="color:var(--warning);margin-top:8px;">✏️ Otvorite modul Kontiranje za ručnu korekciju</div>';
+        }
+
+        function rejectBooking(btn) {
+            const content = btn.closest('.message-content');
+            btn.parentElement.innerHTML = '<div style="color:var(--danger);margin-top:8px;">❌ Knjiženje odbijeno</div>';
+        }
+
+        function handleUpload(input) {
+            if (input.files.length > 0) {
+                const file = input.files[0];
+                addMessage('user', `📎 Učitan dokument: <strong>${escapeHtml(file.name)}</strong> (${(file.size/1024).toFixed(1)} KB)`);
+                addMessage('assistant',
+                    `Primio sam dokument <strong>${escapeHtml(file.name)}</strong>. Analiziram...<br><br>` +
+                    '<em style="color:var(--text-muted)">Za automatsku obradu, koristite specifični modul (Bankovni izvodi, Ulazni računi) u bočnom izborniku.</em>'
+                );
+                input.value = '';
+            }
+        }
+
+        function switchView(view) {
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+
+            const titles = {
+                'chat': '💬 Chat asistent',
+                'bank': '🏦 Bankovni izvodi (A4)',
+                'invoice': '📄 Ulazni računi (A1)',
+                'ios': '📋 IOS usklađivanja (A9)',
+                'kontiranje': '📒 Kontiranje (A3/A7)',
+                'blagajna': '💰 Blagajna (A5)',
+                'putni': '🚗 Putni nalozi (A6)',
+                'rag': '⚖️ Pravna baza (RAG)',
+                'export': '📤 Izvoz u ERP',
+                'stats': '📊 Statistika sustava',
+            };
+            document.getElementById('viewTitle').textContent = titles[view] || view;
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Health check
+        async function checkHealth() {
+            try {
+                const resp = await fetch(`${API_BASE}/health`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    document.getElementById('statusDot').className = 'status-dot online';
+                    document.getElementById('statusText').textContent =
+                        data.vllm_running ? 'vLLM-MLX aktivan' : 'Estimation mode';
+                } else {
+                    throw new Error();
+                }
+            } catch {
+                document.getElementById('statusDot').className = 'status-dot offline';
+                document.getElementById('statusText').textContent = 'Server nedostupan';
+            }
+        }
+
+        // Init
+        checkHealth();
+        setInterval(checkHealth, 30000);
+        document.getElementById('chatInput').focus();
+
+        // Set username from prompt or default
+        const storedUser = localStorage.getItem('nyx_user');
+        if (storedUser) {
+            document.getElementById('userName').textContent = storedUser;
+        } else {
+            const name = prompt('Unesite vaše ime:', 'Korisnik');
+            if (name) {
+                localStorage.setItem('nyx_user', name);
+                document.getElementById('userName').textContent = name;
+            }
+        }
+    </script>
+</body>
+</html>

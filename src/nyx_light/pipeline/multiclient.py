@@ -16,7 +16,7 @@ Pipeline:
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -207,7 +207,7 @@ class DocumentPipeline:
             "match_confidence": match_conf,
             "entities": entities,
             "needs_review": match_conf < 0.80 or doc_class["confidence"] < 0.60,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     def _extract_entities(self, text: str) -> Dict[str, Any]:

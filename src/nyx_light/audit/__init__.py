@@ -15,7 +15,7 @@ import json
 import logging
 import sqlite3
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -75,7 +75,7 @@ class AuditLogger:
                 ip_address, session_id, booking_id, severity)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                datetime.utcnow().isoformat() + "Z",
+                datetime.now(timezone.utc).isoformat(),
                 event_type, user, client_id, action,
                 json.dumps(details or {}, ensure_ascii=False),
                 ip_address, session_id, booking_id, severity,

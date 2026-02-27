@@ -2,65 +2,107 @@
 
 **Privatni ekspertni AI sustav za računovodstvo i knjigovodstvo u Republici Hrvatskoj.**
 
-Lokalni, offline AI koji radi na jednom Mac Studio M5 Ultra (192 GB RAM), opslužuje do 15 zaposlenika istovremeno — bez oblaka, bez latencije, 100% privatnost.
+Nyx Light radi 100% lokalno na jednom Mac Studio M5 Ultra (192 GB RAM), opslužuje do 15 zaposlenika istovremeno, bez ijednog poziva prema cloudu. Svi OIB-ovi, plaće i poslovne tajne ostaju unutar ureda.
 
 ---
 
-## Što sustav radi
+## Ključne sposobnosti
 
-Nyx Light obrađuje, razvrstava, predlaže i kontrolira računovodstvene dokumente. Ljudski računovođa zadržava konačni autoritet — sustav **nikada ne knjiži autonomno** (Human-in-the-Loop).
-
-### Moduli
-
-| Modul | Opis | Status |
-|-------|------|--------|
-| **A1 — Ulazni računi** | OCR skenova i PDF-ova, ekstrakcija OIB-a/PDV-a/iznosa, multi-PDV, R1/R2 | ✅ |
-| **A1-EU — EU/Inozemni računi** | UBL, Peppol, ZUGFeRD, FatturaPA; reverse charge; 5 jezika; 27 EU zemalja | ✅ |
-| **A2 — Izlazni računi** | Validacija, fiskalizacija JIR/ZKI | ✅ |
-| **A3 — Kontiranje** | AI prijedlog konta temeljen na opisu i L2 memoriji | ✅ |
-| **A4 — Bankovni izvodi** | MT940, CSV (Erste/Zaba/PBZ), auto-sparivanje po IBAN/pozivu | ✅ |
-| **A5 — Blagajna** | Provjera limita gotovine (10.000 EUR), validacija | ✅ |
-| **A6 — Putni nalozi** | Provjera km-naknade (0,30 EUR), nepriznati troškovi | ✅ |
-| **A7 — Osnovna sredstva** | Amortizacija, obračun, praćenje | ✅ |
-| **A8 — Plaće** | JOPPD, doprinosi, neoporezivi primici, bolovanja | ✅ |
-| **A9 — IOS usklađivanja** | Generiranje obrazaca, praćenje povrata | ✅ |
-| **B1 — PDV prijava** | Obračun, PP-PDV, ZP obrazac | ✅ |
-| **B2 — Porez na dobit** | PD obrazac, pregled priznatih troškova | ✅ |
-| **B3 — Porez na dohodak** | DOH obrazac | ✅ |
-| **B4 — Intrastat** | EU robna razmjena, CN kodovi | ✅ |
-| **C1 — RAG zakoni** | 27 zakona/pravilnika, time-aware odgovori | ✅ |
-| **C2 — NN Monitor** | Automatsko praćenje Narodnih Novina za izmjene | ✅ |
-| **C3 — GFI** | Financijski izvještaji, XML za eFINA | ✅ |
+| Kategorija | Što radi |
+|---|---|
+| **OCR računa** | Čita skenirane račune (HR + EU + inozemni), PDF, slike — izvlači OIB, iznose, PDV |
+| **EU e-fakture** | Parsira UBL 2.1, Peppol BIS 3.0, ZUGFeRD/Factur-X, FatturaPA, EN 16931, CII |
+| **Reverse charge** | Automatski detektira obrnuto oporezivanje (čl. 75 ZPDV) za EU račune |
+| **Bankovni izvodi** | MT940 + CSV parseri (Erste, Zaba, PBZ), sparivanje s otvorenim stavkama |
+| **Kontiranje** | AI predlaže konto, računovođa odobrava (Human-in-the-Loop) |
+| **Plaće** | Obračun bruto→neto, doprinosi, osobni odbitak 2024/2025, JOPPD XML |
+| **PDV prijava** | Automatski PDV-S obrazac iz odobrenih knjiženja |
+| **Porez na dobit/dohodak** | Priprema obrasca PD i DOH |
+| **Blagajna** | Validacija limita (10.000 EUR), kontrola ispravnosti |
+| **Putni nalozi** | Provjera km-naknade (0,30 EUR/km), reprezentacija |
+| **Osnovna sredstva** | Amortizacija po HR stopama, evidencija |
+| **IOS usklađivanja** | Generiranje IOS obrazaca, praćenje povrata |
+| **GFI/FINA** | Priprema GFI-POD XML za eFINA |
+| **Intrastat** | Provjera pragova i kreiranje Intrastat prijava |
+| **Fakturiranje** | Izdavanje računa za knjigovodstvene usluge |
+| **Likvidacija** | Vođenje postupka likvidacije društva |
+| **Kadrovska** | Evidencija zaposlenika, godišnji odmor, staž |
+| **RAG zakoni** | 27 zakona/pravilnika RH u vektorskoj bazi s vremenskim kontekstom |
+| **NN monitor** | Automatsko praćenje Narodnih Novina za izmjene zakona |
+| **Memorija** | 4-Tier sustav učenja iz ispravaka (L0→L3 + noćni DPO) |
+| **CPP/Synesis** | Izvoz u XML/CSV/JSON formate za oba ERP sustava |
 
 ---
 
-## Brzi start
+## Arhitektura
 
-### Jedan-naredba deploy
-
-```bash
-git clone https://github.com/mladen1312/nyx-light-racunovodja.git
-cd nyx-light-racunovodja
-chmod +x deploy.sh && ./deploy.sh
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    WEB UI (15 korisnika)                        │
+│              /chat  /pending  /approve  /dashboard              │
+├─────────────────────────────────────────────────────────────────┤
+│                     FastAPI Backend                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
+│  │  Chat    │  │ Pipeline │  │ Approval │  │  ERP Export   │  │
+│  │  Bridge  │  │ (HITL)   │  │ Workflow │  │  CPP/Synesis  │  │
+│  └────┬─────┘  └────┬─────┘  └──────────┘  └───────────────┘  │
+│       │              │                                          │
+│  ┌────┴──────────────┴──────────────────────────────────────┐  │
+│  │              MODULI (31 modul)                            │  │
+│  │  OCR · EU Invoice · Banka · Kontiranje · Plaće · PDV     │  │
+│  │  Blagajna · Putni · OS · IOS · GFI · Intrastat · JOPPD  │  │
+│  │  Fakturiranje · Likvidacija · Kadrovska · KPI · ...      │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│       │              │              │                           │
+│  ┌────┴────┐  ┌──────┴──────┐  ┌───┴──────────────────────┐   │
+│  │ Vision  │  │   LegalRAG  │  │   4-Tier Memory          │   │
+│  │ Qwen3-  │  │   27 zakona │  │   L0 Working → L3 DPO   │   │
+│  │ VL-8B   │  │   + NN Mon  │  │   + Semantic Memory      │   │
+│  └─────────┘  └─────────────┘  └──────────────────────────┘   │
+├─────────────────────────────────────────────────────────────────┤
+│              vllm-mlx Inference Engine                          │
+│         Qwen3-235B-A22B (MoE, 22B active params)              │
+│         Continuous Batching + PagedAttention                    │
+├─────────────────────────────────────────────────────────────────┤
+│              Mac Studio M5 Ultra — 192 GB RAM                  │
+│              Sve 100% lokalno. Zero cloud.                     │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Deploy automatski:
-1. Provjerava sustav (RAM, disk, Apple Silicon)
-2. Instalira Python, Homebrew, ovisnosti
-3. Kreira virtualnu okolinu s 35+ paketa
-4. Postavlja baze (Qdrant, Neo4j, SQLite)
-5. Skida LLM model (ovisno o RAM-u)
-6. Skida embedding model za RAG
-7. Skida 27 zakona/pravilnika RH
-8. Konfigurira sustav i auth
-9. Pokreće testove i postavlja auto-update cron
+---
 
-### Opcije deploya
+## Brza instalacija
+
+### Preduvjeti
+- Mac Studio M5 Ultra (192 GB) ili Mac s Apple Silicon (min. 64 GB)
+- macOS 14+ ili Ubuntu 22.04+
+- Python 3.12+
+
+### One-File Deploy
 
 ```bash
-./deploy.sh                 # Puna instalacija (~60-90 min s modelima)
+git clone https://github.com/mladen1312/nyx.git
+cd nyx
+chmod +x deploy.sh
+./deploy.sh
+```
+
+Deploy.sh automatski:
+1. Detektira RAM i bira optimalni model (192GB→Qwen3-235B, 96GB→Qwen2.5-72B, 64GB→Qwen3-30B)
+2. Instalira Python okruženje + 35 paketa
+3. Podiže Qdrant vektorsku bazu
+4. Skida LLM + Vision model (~60-90 min za prvi put)
+5. Skida 27 zakona/pravilnika RH
+6. Kreira konfiguraciju i auth bazu
+7. Pokreće testove
+8. Postavlja cron za tjedni auto-update
+
+### Opcije deploy.sh
+
+```bash
+./deploy.sh                 # Puna instalacija
 ./deploy.sh --skip-models   # Sve osim modela (~5 min)
-./deploy.sh --models-only   # Samo LLM modeli
+./deploy.sh --models-only   # Samo modeli (~60 min)
 ./deploy.sh --laws-only     # Samo zakoni RH
 ./deploy.sh --resume        # Nastavi prekinutu instalaciju
 ./deploy.sh --status        # Provjeri status
@@ -70,301 +112,261 @@ Deploy automatski:
 
 ```bash
 source .venv/bin/activate
-python -m uvicorn src.nyx_light.ui.web:create_app --host 0.0.0.0 --port 8080
+python -m nyx_light.main --host 0.0.0.0 --port 8000
 ```
 
-Otvori http://localhost:8080 u pregledniku. Svih 15 zaposlenika može pristupiti istovremeno.
+Otvori `http://localhost:8000` u pregledniku.
 
 ---
 
-## Hardver
+## Auto-Update sustav
 
-| Komponenta | Minimum | Preporučeno |
-|-----------|---------|-------------|
-| Mac Studio | M4 Ultra 64GB | **M5 Ultra 192GB** |
-| RAM | 64 GB | **192 GB** |
-| Disk | 200 GB SSD | 500 GB SSD |
-| Mreža | LAN (offline) | LAN (offline) |
+Nyx Light automatski prati izmjene zakona putem Narodnih Novina i ažurira RAG bazu.
 
-### Automatski odabir modela po RAM-u
+### Tjedni cron (automatski postavljen)
+```
+# Svake nedjelje u 03:00 — provjera NN + update zakona
+0 3 * * 0 /path/to/update.sh --auto >> /path/to/data/logs/update.log 2>&1
+```
 
-| RAM | Primarni LLM | Vision | Ukupno |
-|-----|-------------|--------|--------|
-| **192 GB+** | Qwen3-235B-A22B (MoE, 22B aktivno, ~124GB) | Qwen3-VL-8B (~5GB) | ~130 GB |
-| **96 GB+** | Qwen2.5-72B-Instruct (~42GB) | Qwen3-VL-8B (~5GB) | ~48 GB |
-| **64 GB+** | Qwen3-30B-A3B (MoE, 3B aktivno, ~18GB) | Qwen3-VL-8B (~5GB) | ~24 GB |
+### Ručni update
+
+```bash
+./update.sh                # Interaktivno: NN + zakoni + modeli
+./update.sh --auto         # Tiho (za cron)
+./update.sh --laws         # Samo zakoni
+./update.sh --check-nn     # Provjeri Narodne Novine
+./update.sh --models       # Provjeri modele
+./update.sh --force        # Forsiraj sve
+./update.sh --rollback     # Vrati prethodni model
+./update.sh --status       # Status sustava
+```
+
+### Što se ažurira
+- **27 zakona/pravilnika** — automatski download novih verzija
+- **NN Monitor** — skenira narodne-novine.nn.hr za izmjene
+- **RAG baza** — re-indeksira nove verzije zakona
+- **Znanje se NE gubi** — memorija, DPO, LoRA, auth ostaju intaktni
+
+---
+
+## Zakoni u sustavu (27)
+
+### Prioritet 1 — Kritični (10)
+| # | Zakon/Pravilnik | NN |
+|---|---|---|
+| 1 | Zakon o PDV-u | NN 73/13 + 14 izmjena |
+| 2 | Zakon o računovodstvu | NN 78/15 + 6 izmjena |
+| 3 | Zakon o porezu na dobit | NN 177/04 + 15 izmjena |
+| 4 | Zakon o porezu na dohodak | NN 115/16 + 7 izmjena |
+| 5 | Zakon o doprinosima | NN 84/08 + 12 izmjena |
+| 6 | Pravilnik o PDV-u | NN 79/13 + 16 izmjena |
+| 7 | Pravilnik o porezu na dobit | NN 95/05 + 17 izmjena |
+| 8 | Pravilnik o porezu na dohodak | NN 10/17 + 12 izmjena |
+| 9 | Pravilnik o JOPPD | NN 32/15 + 7 izmjena |
+| 10 | Pravilnik o neoporezivim primicima | NN 1/23 + 1 izmjena |
+
+### Prioritet 2 — Važni (8)
+| # | Zakon/Pravilnik | NN |
+|---|---|---|
+| 11 | Zakon o fiskalizaciji | NN 133/12 |
+| 12 | Opći porezni zakon | NN 115/16 |
+| 13 | Zakon o radu | NN 93/14 |
+| 14 | Zakon o trgovačkim društvima | NN 111/93 |
+| 15 | Zakon o obrtu | NN 143/13 |
+| 16 | Pravilnik o amortizaciji | NN 1/01 |
+| 17 | Pravilnik o kontnom planu | NN 95/16 |
+| 18 | Pravilnik o doprinosima | NN 2/09 |
+
+### Prioritet 3 — Korisni (9)
+| # | Zakon/Pravilnik | NN |
+|---|---|---|
+| 19 | Pravilnik o e-Računu | NN 1/19 |
+| 20 | HSFI standardi | NN 86/15 |
+| 21 | RRiF kontni plan 2024 | — |
+| 22 | Zakon o provedbi ovrhe | NN 68/18 |
+| 23 | Uredba o minimalnoj plaći | NN 156/23 |
+| 24 | Neoporezivi osobni odbitak | NN 9/25 |
+| 25-27 | Dodatni pravilnici i standardi | — |
+
+---
+
+## EU / Inozemni računi
+
+Nyx Light prepoznaje račune iz svih EU zemalja i trećih država:
+
+### Strukturirani formati (100% točnost)
+- **EN 16931** — EU standard za e-račune
+- **Peppol BIS 3.0** — pan-europski UBL format
+- **ZUGFeRD 2.x / Factur-X** — DE/FR/AT hibridni PDF+XML
+- **FatturaPA** — IT obavezni XML format
+- **UBL 2.1** — generički
+- **CII** — UN/CEFACT Cross Industry Invoice
+
+### Vizualni OCR (AI)
+- Jezici: hrvatski, engleski, njemački, talijanski, slovenski, francuski
+- Valute: EUR, USD, GBP, CHF, CZK, PLN, HUF, RON, BGN, SEK, DKK, NOK
+- VAT ID validacija za svih 27 EU zemalja
+
+### Automatski PDV tretman
+| Situacija | Tretman | Temelj |
+|---|---|---|
+| Stjecanje robe iz EU | Reverse charge | Čl. 4.1.2 ZPDV |
+| Primanje usluge iz EU | Reverse charge | Čl. 17.1 ZPDV |
+| Uvoz iz trećih zemalja | Carinska prijava | Čl. 7 ZPDV |
+| Reverse charge | Obrnuto oporezivanje | Čl. 75 ZPDV |
 
 ---
 
 ## AI Modeli
 
-### Primarni LLM: Qwen3-235B-A22B (4-bit MLX)
-- **MoE arhitektura**: 235B ukupno, samo 22B aktivno po tokenu
-- Odlična podrška za hrvatski jezik
-- 8K context window, temperature 0.1 za preciznost
-- Continuous Batching za 15 paralelnih korisnika
+| Model | Uloga | Veličina | RAM |
+|---|---|---|---|
+| Qwen3-235B-A22B | Logika, kontiranje, savjeti | ~124 GB | 192 GB |
+| Qwen2.5-72B-Instruct | Alternativa za 96 GB | ~42 GB | 96 GB |
+| Qwen3-30B-A3B | Alternativa za 64 GB | ~18 GB | 64 GB |
+| Qwen3-VL-8B-Instruct | Vision OCR (skenovi, računi) | ~5 GB | +5 GB |
+| MiniLM-L12-v2 | Embedding za RAG | ~500 MB | +500 MB |
 
-### Vision: Qwen3-VL-8B-Instruct (4-bit MLX)
-- **OCR u 32 jezika** uključujući HR, DE, IT, SI, FR, EN
-- DeepStack arhitektura za fine-grained detalje (mali tekst na računima)
-- Tolerantan na blur, tilt, low-light skenove
-- Čita: PDF, JPEG, PNG, TIFF skenove
-
-### Embedding: paraphrase-multilingual-MiniLM-L12-v2
-- 384-dimenzionalni vektori
-- Podržava 50+ jezika za RAG pretragu
-- ~500 MB, brz i efikasan
+Svi modeli su kvantizirani za Apple Silicon MLX.
 
 ---
 
-## EU i Inozemni računi
-
-Sustav automatski prepoznaje porijeklo računa i primjenjuje ispravni PDV tretman.
-
-### Podržani formati
-
-**Strukturirani (100% accuracy):**
-- EN 16931 (EU e-faktura standard)
-- Peppol BIS 3.0 (pan-europski UBL)
-- ZUGFeRD 2.x / Factur-X (DE/FR/AT)
-- FatturaPA (IT obavezni format)
-- UBL 2.1, CII (UN/CEFACT)
-
-**Vizualni (AI OCR):**
-- Računi na HR, EN, DE, IT, SI, FR jeziku
-- Automatska detekcija valute (EUR, USD, GBP, CHF, ...)
-- VAT ID prepoznavanje za svih 27 EU zemalja
-
-### Automatski PDV tretman
-
-| Situacija | Tretman | Članak ZPDV |
-|-----------|---------|------------|
-| HR → HR | Standardni PDV | — |
-| EU → HR (reverse charge) | Obratni obračun | čl. 75/1/6 |
-| EU → HR (roba) | EU stjecanje | čl. 4/1/2 |
-| Treća zemlja → HR | Uvoz (JCD) | čl. 32 |
-| Non-EUR valuta | Automatski traži HNB tečaj | — |
-
----
-
-## RAG — Pravna baza znanja
-
-### 27 Zakona i pravilnika
-
-**Prioritet 1 — Kritični:**
-1. Zakon o PDV-u (NN 73/13 + 14 izmjena)
-2. Zakon o računovodstvu (NN 78/15 + 6 izmjena)
-3. Zakon o porezu na dobit (NN 177/04 + 15 izmjena)
-4. Zakon o porezu na dohodak (NN 115/16 + 7 izmjena)
-5. Zakon o doprinosima (NN 84/08 + 12 izmjena)
-6. Pravilnik o PDV-u (NN 79/13 + 15 izmjena)
-7. Pravilnik o porezu na dobit (NN 95/05 + 18 izmjena)
-8. Pravilnik o porezu na dohodak (NN 10/17 + 12 izmjena)
-9. Pravilnik o JOPPD (NN 32/15 + 8 izmjena)
-10. Pravilnik o neoporezivim primicima (NN 1/23)
-11. Neoporezivi osobni odbitak i porezne stope (NN 9/25)
-
-**Prioritet 2 — Važni:**
-12. Zakon o fiskalizaciji (NN 133/12)
-13. Opći porezni zakon (NN 115/16)
-14. Zakon o radu (NN 93/14)
-15. Zakon o trgovačkim društvima (NN 111/93)
-16. Zakon o obrtu (NN 143/13)
-17. HSFI standardi (NN 86/15)
-18. Pravilnik o amortizaciji (NN 1/01)
-19. Pravilnik o kontnom planu (NN 95/16)
-20. Pravilnik o doprinosima (NN 2/09)
-21. Uredba o minimalnoj plaći (NN 156/23)
-22. RRiF-ov kontni plan
-
-**Prioritet 3 — Korisni:**
-23. Zakon o provedbi ovrhe (NN 68/18)
-24. Pravilnik o e-Računu (NN 1/19)
-
-### Time-Aware odgovori
-
-RAG sustav zna **koja verzija zakona je vrijedila u kojem trenutku**. Pitanje o PDV-u iz 2023. daje odgovor temeljen na zakonu koji je tada bio na snazi.
-
-### Auto-update iz Narodnih Novina
-
-Svake nedjelje u 03:00, sustav automatski:
-1. Provjerava Narodne Novine za nove brojeve
-2. Filtrira samo zakone bitne za računovodstvo (27 ključnih riječi)
-3. Skida nove izmjene
-4. Ažurira RAG vektorsku bazu
-5. Logira sve promjene
-
-```bash
-./update.sh --check-nn     # Ručna provjera NN
-./update.sh --laws          # Update zakona
-./update.sh --auto          # Automatski (za cron)
-./update.sh --status        # Status sustava
-```
-
----
-
-## Arhitektura
+## 4-Tier Memory sustav
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  15 zaposlenika (Browser → http://server:8080)      │
-└──────────────┬──────────────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────────────┐
-│  FastAPI + WebSocket (Chat, Approval, Dashboard)     │
-│  Auth (JWT, 12h token, audit log)                    │
-└──────────────┬──────────────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────────────┐
-│  Chat Bridge → vLLM-MLX (Qwen3-235B-A22B)           │
-│  + RAG kontekst (zakoni) + L2 memorija (pravila)     │
-│  + L1 memorija (današnje interakcije)                │
-└──────────────┬──────────────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────────────┐
-│  Booking Pipeline (pending → approval → export)      │
-│  ┌──────┐ ┌──────┐ ┌────┐ ┌───────┐ ┌─────┐       │
-│  │OCR+EU│ │Banka │ │Plaće│ │Blagajna│ │Putni│ ...   │
-│  │14 reg│ │MT940 │ │JOPPD│ │Limiti │ │km   │       │
-│  └──┬───┘ └──┬───┘ └──┬─┘ └──┬────┘ └──┬──┘       │
-│     └────────┴────────┴──────┴─────────┘            │
-│                       │                              │
-│              Kontiranje (AI + L2 memorija)            │
-│                       │                              │
-│              OVERSEER (tvrde granice)                 │
-└──────────────┬──────────────────────────────────────┘
-               │ ✅ Odobri / ❌ Odbij / ✏️ Ispravi
-┌──────────────▼──────────────────────────────────────┐
-│  ERP Export: CPP (XML) / Synesis (CSV/JSON)          │
-└─────────────────────────────────────────────────────┘
+L0 (Working)   → Trenutni ispravak u chatu (nestaje nakon sesije)
+L1 (Episodic)  → Dnevnik interakcija (sprječava ponavljanje grešaka)
+L2 (Semantic)  → Trajna pravila ("Klijent X → konto Y za dobavljača Z")
+L3 (DPO)       → Noćna optimizacija modela iz odobrenih knjiženja
 ```
 
-### Memorija (4-Tier)
-
-| Tier | Opis | Trajanje |
-|------|------|----------|
-| L0 — Working | Trenutni ispravak u chatu | Sesija |
-| L1 — Episodic | Dnevnik današnjih interakcija | 30 dana |
-| L2 — Semantic | Trajna pravila kontiranja | Zauvijek |
-| Noćni DPO | Optimizacija modela iz odobrenih knjiženja | Noćno |
-
-### Baze podataka
-
-| Baza | Svrha | Obavezna |
-|------|-------|----------|
-| **Qdrant** | Vektorska pretraga zakona (RAG) | ✅ |
-| **SQLite** | Memorija, DPO, auth, audit log | ✅ |
-| **Neo4j** | Knowledge graph (entiteti, relacije) | Opcionalno |
+AI uči iz svakog ispravka koji računovođa napravi, bez programiranja.
 
 ---
 
-## Sigurnost
+## Sigurnosne granice
 
-- **100% lokalno** — nema cloud API poziva, nema slanja podataka van ureda
-- **Zero cloud dependency** — radi offline
-- **Auth** — JWT tokeni, 12h istek, 5 krivih pokušaja → 15 min lockout
-- **Audit log** — svaka akcija se bilježi
-- **Tvrde granice:**
-  - Zabrana pravnog savjetovanja izvan računovodstva
-  - Zabrana autonomnog knjiženja — uvijek Human-in-the-Loop
-  - Zabrana pristupa vanjskim API-jima
+- **Zero cloud** — nijedan bajt ne napušta lokalni stroj
+- **Human-in-the-Loop** — ništa ne ulazi u CPP/Synesis bez klika "Odobri"
+- **Nema pravnog savjetovanja** — odbija ugovore, tužbe, radno pravo
+- **Audit trail** — svaki klik, svaki ispravak, svaki izvoz je zapisan
+- **RBAC** — role-based pristup (admin, računovođa, asistent)
+- **OIB zaštita** — OIB-ovi, plaće i poslovne tajne nikad ne izlaze iz sustava
 
 ---
 
 ## Struktura projekta
 
 ```
-nyx-light-racunovodja/
-├── deploy.sh                    # One-file deploy (sve 9 faza)
+nyx/
+├── deploy.sh                    # One-file instalacija
 ├── update.sh                    # Auto-update zakoni + modeli
-├── config.json                  # Konfiguracija sustava
+├── README.md                    # Ovaj dokument
+├── pyproject.toml               # Python konfiguracija
 ├── src/nyx_light/
 │   ├── app.py                   # Centralna klasa (NyxLightApp)
-│   ├── main.py                  # Entry point (FastAPI server)
-│   ├── pipeline/                # Booking pipeline (pending→approve→export)
-│   ├── llm/                     # Chat bridge + system prompt
-│   ├── vision/                  # Vision AI (Qwen3-VL-8B)
+│   ├── main.py                  # FastAPI entry point
+│   ├── pipeline/                # Booking Pipeline + Approval
+│   ├── llm/chat_bridge.py       # LLM Chat Bridge (vllm-mlx)
+│   ├── vision/pipeline.py       # Vision AI (Qwen3-VL-8B)
 │   ├── rag/
-│   │   ├── legal_rag.py         # Time-Aware RAG (centralna klasa)
-│   │   ├── law_downloader.py    # 27 zakona, auto-download
-│   │   ├── nn_monitor.py        # Narodne Novine praćenje
+│   │   ├── legal_rag.py         # Time-Aware RAG (Qdrant)
+│   │   ├── law_downloader.py    # Download 27 zakona RH
 │   │   ├── law_loader.py        # Chunking po člancima
-│   │   └── qdrant_store.py      # Vektorska baza
+│   │   ├── nn_monitor.py        # Narodne Novine auto-monitor
+│   │   └── qdrant_store.py      # Qdrant vektorska baza
+│   ├── memory/                  # 4-Tier Memory (L0-L3)
+│   ├── model_manager/           # Model catalog + download + upgrade
 │   ├── modules/
-│   │   ├── invoice_ocr/
-│   │   │   ├── extractor.py     # HR računi (14 regex, OIB validacija)
-│   │   │   └── eu_invoice.py    # EU/inozemni (UBL, Peppol, ZUGFeRD...)
-│   │   ├── bank_parser/         # MT940, CSV (Erste/Zaba/PBZ)
-│   │   ├── kontiranje/          # AI kontiranje + kontni plan
-│   │   ├── payroll/             # Plaće, JOPPD
-│   │   ├── blagajna/            # Gotovinski limiti
-│   │   ├── putni_nalozi/        # Km-naknada, nepriznati troškovi
-│   │   ├── osnovna_sredstva/    # Amortizacija
-│   │   ├── pdv_prijava/         # PP-PDV
+│   │   ├── invoice_ocr/         # OCR + EU Invoice Recognition
+│   │   ├── bank_parser/         # MT940 + CSV parseri
+│   │   ├── kontiranje/          # Kontni plan + AI prijedlog
+│   │   ├── payroll/             # Plaće, doprinosi, JOPPD
+│   │   ├── pdv_prijava/         # PDV-S obrazac
 │   │   ├── porez_dobit/         # PD obrazac
-│   │   ├── intrastat/           # EU robna razmjena
-│   │   └── ...                  # 30+ modula ukupno
-│   ├── auth/                    # JWT + role-based access
-│   ├── memory/                  # 4-Tier memory system
-│   ├── finetune/                # Noćni DPO optimizator
-│   ├── model_manager/           # Model catalog + safe swap
-│   ├── safety/                  # OVERSEER hard boundaries
-│   ├── erp/                     # CPP + Synesis konektori
-│   ├── export/                  # XML/CSV/JSON export
-│   └── ui/                      # FastAPI + WebSocket UI
-├── tests/                       # 509 testova
+│   │   ├── porez_dohodak/       # DOH obrazac
+│   │   ├── blagajna/            # Blagajna validator
+│   │   ├── putni_nalozi/        # Putni nalozi checker
+│   │   ├── osnovna_sredstva/    # Amortizacija
+│   │   ├── ios_reconciliation/  # IOS obrasci
+│   │   ├── gfi_xml/             # GFI-POD za eFINA
+│   │   ├── gfi_prep/            # GFI priprema
+│   │   ├── intrastat/           # Intrastat prijave
+│   │   ├── joppd/               # JOPPD XML
+│   │   ├── fakturiranje/        # Izdavanje računa
+│   │   ├── likvidacija/         # Postupak likvidacije
+│   │   ├── kadrovska/           # Evidencija zaposlenika
+│   │   ├── bolovanje/           # Bolovanja
+│   │   ├── drugi_dohodak/       # Drugi dohodak
+│   │   ├── novcani_tokovi/      # Cash flow
+│   │   ├── kpi/                 # Financijski KPI
+│   │   └── ...                  # 31 modul ukupno
+│   ├── export/                  # ERP Export (CPP XML, Synesis CSV)
+│   ├── erp/                     # ERP Connectors
+│   ├── registry/                # Client Registry
+│   ├── auth/                    # RBAC autentikacija
+│   ├── safety/                  # OVERSEER + Hard Boundaries
+│   ├── finetune/                # Nightly DPO optimization
+│   ├── ui/web.py                # Web UI (FastAPI + WebSocket)
+│   ├── ingest/                  # IMAP, Watch Folder, API
+│   └── monitoring/              # Health, metrics, alerts
+├── tests/                       # 509+ testova
+│   ├── test_sprint13_deploy_eu.py
+│   ├── test_full_suite.py
+│   └── ...
 ├── data/
-│   ├── models/                  # LLM + Vision + Embedding
-│   ├── laws/                    # 27 zakona (txt)
+│   ├── models/                  # LLM + Vision + Embeddings
+│   ├── laws/                    # 27 zakona (.txt)
 │   ├── rag_db/                  # Qdrant vektori
-│   ├── memory_db/               # L1+L2 memorija
+│   ├── memory_db/               # L1+L2 SQLite
 │   ├── dpo_datasets/            # DPO preference parovi
-│   └── logs/                    # Logovi sustava
+│   └── logs/                    # Logovi
 └── scripts/                     # Pomoćne skripte
 ```
 
 ---
 
-## Testovi
+## Testiranje
 
 ```bash
 source .venv/bin/activate
-python -m pytest tests/ -v              # Svi testovi (509)
-python -m pytest tests/ -v -k "eu"      # Samo EU invoice testovi
-python -m pytest tests/ -v -k "rag"     # Samo RAG testovi
-python -m pytest tests/ -v -k "sprint13" # Sprint 13 testovi (40)
+
+# Svi testovi
+python -m pytest tests/ -v
+
+# Samo Sprint 13 (deploy, EU, NN, RAG)
+python -m pytest tests/test_sprint13_deploy_eu.py -v
+
+# S pokrivanjem koda
+python -m pytest tests/ --cov=src/nyx_light --cov-report=term-missing
 ```
+
+Trenutni status: **509 testova, svi prolaze.**
 
 ---
 
-## Update sustava
+## API Endpoints
 
-### Automatski (cron)
-Svake nedjelje u 03:00, `update.sh --auto` automatski:
-- Provjerava Narodne Novine za izmjene zakona
-- Skida nove verzije zakona i pravilnika
-- Ažurira RAG vektorsku bazu
-- Provjerava dostupnost novih verzija LLM modela
-
-### Ručno
-```bash
-./update.sh                 # Interaktivno (zakoni + modeli + NN)
-./update.sh --laws          # Samo zakoni
-./update.sh --check-nn      # Provjeri Narodne Novine
-./update.sh --models        # Provjeri modele
-./update.sh --force         # Forsiraj update svega
-./update.sh --rollback      # Vrati prethodni model
-./update.sh --status        # Status sustava
 ```
-
-### Znanje se ne gubi pri update-u
-Svi podaci ostaju intaktni:
-- L1+L2 memorija, DPO dataseti, LoRA adapteri
-- RAG vektorska baza, auth baza, konfiguracija
-- `update.sh` automatski verificira integritet prije i poslije
+POST /chat                    → AI chat (pitanja, kontiranje, savjeti)
+GET  /pending                 → Lista pending knjiženja
+POST /approve/{id}            → Odobri knjiženje
+POST /reject/{id}             → Odbij knjiženje
+POST /correct/{id}            → Ispravi i odobri
+POST /process/invoice         → Obradi ulazni račun (HR + EU)
+POST /process/bank-statement  → Obradi bankovni izvod
+POST /process/payroll         → Obračunaj plaće
+GET  /export/{client_id}      → Export u CPP/Synesis
+GET  /dashboard               → KPI i statistike
+GET  /clients                 → Lista klijenata
+GET  /health                  → Health check
+```
 
 ---
 
 ## Licenca
 
-Privatni sustav — © 2026 Dr. Mladen Mešter | Nexellum Lab d.o.o.
+Privatni softver. © 2026 Dr. Mladen Mešter | Nexellum Lab d.o.o.
+
+Sva prava pridržana. Neovlašteno korištenje, kopiranje ili distribucija je zabranjeno.

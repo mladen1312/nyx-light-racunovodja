@@ -4,8 +4,8 @@
 > **Matematika računa. AI klasificira. Čovjek odobrava.**
 
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
-![Tests](https://img.shields.io/badge/tests-690%20passing-brightgreen)
-![Laws](https://img.shields.io/badge/zakoni%20RH-27-red)
+![Tests](https://img.shields.io/badge/tests-926%20passing-brightgreen)
+![Laws](https://img.shields.io/badge/zakoni%20RH-25-red)
 ![License](https://img.shields.io/badge/licenca-privatna-black)
 
 Nyx Light radi **100% lokalno** na Mac Studio, opslužuje do **15 zaposlenika** istovremeno.
@@ -122,20 +122,29 @@ Mac Studio s **M5 Ultra** čipom je najavljen za prvu polovicu 2026. Kad bude do
 
 ## 🚀 Brza instalacija
 
+**Za osobu koja NE ZNA informatiku — samo 2 koraka:**
+
+1. Otvorite **Terminal** (Cmd+Space → upišite "Terminal" → Enter)
+2. Zalijepite ovo i pritisnite Enter:
+
 ```bash
 git clone https://github.com/mladen1312/nyx-light-racunovodja.git
 cd nyx-light-racunovodja
-chmod +x deploy.sh
-./deploy.sh
+chmod +x install.sh && ./install.sh
 ```
+
+Skripta automatski instalira **SVE**: Homebrew, Python, pakete, AI modele, baze zakona.
+Trajanje: 30-60 minuta. Na kraju se otvara browser na `http://localhost:7860`.
+
+**Login:** `admin` / `admin123` (promijenite odmah!)
 
 **Korisne komande:**
 ```bash
 ./start.sh              # Pokreni sustav
-./stop.sh               # Zaustavi
-./update.sh --check     # Provjeri nove modele/zakone
-./update.sh --laws      # Ažuriraj samo zakone
-./update.sh --model     # Upgrade LLM modela (safe, s rollback-om)
+./start.sh stop         # Zaustavi
+./start.sh status       # Provjeri stanje
+./start.sh restart      # Restart
+./start.sh ingest-laws  # Ažuriraj zakone
 ```
 
 ---
@@ -492,10 +501,11 @@ Svaki podatak prolazi 3 nezavisne provjere:
 
 | Metrika | Vrijednost |
 |---------|-----------|
-| Linija koda | 21.433 |
-| Testova | 690 (svi prolaze) |
-| Modula | 31 |
-| Zakona RH | 27 |
+| Linija koda | 28.458 |
+| Testova | 926 (svi prolaze) |
+| Modula | 36 |
+| Zakona RH | 25 |
+| API endpointa | 80 |
 | Silicon optimizacija | ~3.000 linija |
 | Zaštićenih putanja znanja | 10 |
 | Safe swap faza | 10 |

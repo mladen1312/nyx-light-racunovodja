@@ -257,6 +257,32 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
 
     session_id = f"{user['user_id']}_{req.client_id or 'general'}"
 
+    # RAG search — relevantni zakoni
+    try:
+        from nyx_light.rag.embedded_store import EmbeddedVectorStore
+        rag_store = EmbeddedVectorStore()
+        rag_results = rag_store.search(req.message, top_k=3)
+        if rag_results:
+            context.rag_results = [
+                {"text": getattr(r, "text", ""), "source": getattr(r, "law_name", ""),
+                 "article": getattr(r, "article_number", ""),
+                 "score": getattr(r, "score", 0)}
+                for r in rag_results if getattr(r, "text", "")
+            ]
+    except Exception as e:
+        logger.debug("RAG search: %s", e)
+
+    # Module routing — preusmjeri na specijalizirani modul ako je moguće
+    try:
+        from nyx_light.router import ModuleRouter
+        route = ModuleRouter().route(req.message)
+        if route.get("confidence", 0) > 0.7:
+            context.semantic_facts.append(
+                f"[Router: preporuča modul '{route.get('module', '')}' "
+                f"(confidence: {route.get('confidence', 0):.0%})]")
+    except Exception:
+        pass
+
     # Call LLM
     response = await state.chat_bridge.chat(req.message, session_id, context)
 

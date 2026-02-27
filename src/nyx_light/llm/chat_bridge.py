@@ -275,26 +275,77 @@ class ChatBridge:
         }
 
     def _fallback_response(self, user_msg: str) -> str:
-        """Heuristički fallback kad LLM server nije dostupan."""
+        """Pametni fallback kad LLM server nije dostupan — koristi RAG i module."""
         msg_lower = user_msg.lower()
 
+        # 1. Pokušaj RAG pretragu zakona
+        try:
+            from nyx_light.rag import EmbeddedVectorStore
+            store = EmbeddedVectorStore()
+            results = store.search(user_msg, top_k=3)
+            if results and len(results) > 0:
+                chunks = []
+                for r in results[:2]:
+                    text = getattr(r, "text", "") if not isinstance(r, dict) else r.get("text", "")
+                    source = getattr(r, "law_name", "") if not isinstance(r, dict) else r.get("source", "")
+                    if not text:
+                        text = r.get("text", r.get("content", "")) if isinstance(r, dict) else ""
+                    if text:
+                        chunks.append(f"📜 {source}: {text[:300]}")
+                if chunks:
+                    return ("Pronašao sam relevantne odredbe iz zakona:\n\n"
+                            + "\n\n".join(chunks)
+                            + "\n\n⚠️ Ovo je automatski izvadak iz baze zakona. "
+                            "Za detaljniju analizu, pokrenite AI server (`./start.sh llm`).")
+        except Exception:
+            pass
+
+        # 2. Module-specific responses
         if any(w in msg_lower for w in ["pdv", "porez na dodanu"]):
             return ("Pitanje o PDV-u. Prema Zakonu o PDV-u (NN 73/13), "
-                    "standardna stopa je 25%, snižene 13% i 5%. "
-                    "Za preciznu analizu, molim specficirajte situaciju. "
-                    "⚠️ LLM server trenutno nije dostupan — "
-                    "ovo je generički odgovor.")
+                    "standardna stopa je 25%, snižene 13% (ugostiteljstvo, namirnice) "
+                    "i 5% (knjige, lijekovi, dječja hrana). "
+                    "Za preciznu analizu, specificirajte situaciju.\n"
+                    "⚠️ AI model nije pokrenut — koristim bazu zakona.")
 
         if any(w in msg_lower for w in ["konto", "kontir", "knjižen"]):
-            return ("Za kontiranje, trebam više detalja: "
-                    "vrstu dokumenta, iznos, klijenta i tip transakcije. "
-                    "⚠️ LLM server trenutno nije dostupan.")
+            return ("Za kontiranje trebam: vrstu dokumenta, iznos, klijenta i tip transakcije. "
+                    "Primjer: 'Ulazni račun 1.250 EUR za uredski materijal od XY d.o.o.'\n"
+                    "⚠️ AI model nije pokrenut — pokrenite `./start.sh llm`.")
 
         if any(w in msg_lower for w in ["plaća", "placa", "bruto", "neto"]):
-            return ("Za obračun plaće trebam: bruto iznos, "
-                    "olakšice (osobni odbitak), i doprinose. "
-                    "⚠️ LLM server trenutno nije dostupan.")
+            try:
+                # Try to extract number and calculate
+                import re
+                nums = re.findall(r'[\d.,]+', user_msg)
+                if nums:
+                    bruto = float(nums[0].replace(',', '.'))
+                    if bruto > 100:
+                        from nyx_light.modules.place import PayrollCalculator, ObracunPlaceInput
+                        r = PayrollCalculator().obracun(ObracunPlaceInput(bruto=bruto))
+                        return (f"💰 Obračun plaće:\n"
+                                f"   Bruto: {r.bruto_ukupno:,.2f} EUR\n"
+                                f"   MIO I+II: {r.mio_i + r.mio_ii:,.2f}\n"
+                                f"   Porez+prirez: {r.porez + r.prirez:,.2f}\n"
+                                f"   Za isplatu: {r.za_isplatu:,.2f} EUR\n\n"
+                                "⚠️ Izračun za Zagreb bez olakšica.")
+            except Exception:
+                pass
+            return ("Za obračun plaće idite na stranicu Plaće (izbornik lijevo) "
+                    "ili mi recite bruto iznos.\n"
+                    "⚠️ AI model nije pokrenut.")
 
-        return ("Primio sam vaš upit. Za potpuni odgovor, "
-                "pokrenite vllm-mlx server naredbom: "
-                "`./start.sh` ⚠️ LLM server nije dostupan.")
+        if any(w in msg_lower for w in ["rok", "deadline", "porezn"]):
+            return ("Porezni rokovi: PDV prijava do 20. u mjesecu, "
+                    "JOPPD do 15. u mjesecu za prethodni, "
+                    "Porez na dobit godišnje do 30.04.\n"
+                    "Pogledajte stranicu 📅 Rokovi za detalje.")
+
+        if any(w in msg_lower for w in ["bok", "hej", "zdravo", "pozdrav", "dobar"]):
+            return ("Pozdrav! 👋 Ja sam Nyx Light, vaš AI računovodstveni asistent.\n"
+                    "Pitajte me o PDV-u, kontiranju, plaćama ili zakonima.\n"
+                    "⚠️ AI model nije pokrenut — osnovna funkcionalnost je dostupna.")
+
+        return ("Primio sam vaš upit. Osnovna funkcionalnost radi — "
+                "pokušajte pitanja o PDV-u, plaćama, kontiranju ili rokovima.\n"
+                "Za potpune AI odgovore pokrenite: `./start.sh llm`")

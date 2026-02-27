@@ -113,6 +113,31 @@ check_macos() {
 # 1. HOMEBREW
 # ══════════════════════════════════════════
 
+install_xcode_clt() {
+    step "Provjera Xcode Command Line Tools..."
+    if xcode-select -p &>/dev/null; then
+        ok "Xcode CLT već instaliran"
+    else
+        step "Instaliram Xcode Command Line Tools..."
+        info "Pojavit će se macOS prozor — kliknite 'Install' i čekajte."
+        xcode-select --install 2>/dev/null || true
+        # Čekaj da se instalira (max 10 minuta)
+        local max_wait=600
+        local waited=0
+        while ! xcode-select -p &>/dev/null && [[ $waited -lt $max_wait ]]; do
+            sleep 10
+            waited=$((waited + 10))
+            echo -n "."
+        done
+        echo ""
+        if xcode-select -p &>/dev/null; then
+            ok "Xcode CLT instaliran"
+        else
+            warn "Xcode CLT instalacija nije završena — možda treba ručno"
+        fi
+    fi
+}
+
 install_homebrew() {
     step "Provjera Homebrew..."
     if command -v brew &>/dev/null; then
@@ -509,6 +534,7 @@ main() {
     fi
 
     # Full install
+    install_xcode_clt
     install_homebrew
     install_system_deps
     setup_python

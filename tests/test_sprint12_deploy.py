@@ -628,8 +628,8 @@ class TestScripts:
     def test_readme_has_deploy_instructions(self):
         readme = Path(__file__).parent.parent / "README.md"
         content = readme.read_text()
-        assert "deploy.sh" in content
-        assert "update.sh" in content
+        assert "install.sh" in content or "deploy.sh" in content
+        assert "start.sh" in content
 
     def test_readme_has_law_list(self):
         readme = Path(__file__).parent.parent / "README.md"

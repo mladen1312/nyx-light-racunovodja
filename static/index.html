@@ -136,6 +136,8 @@ body.light .chat-msg .bubble{border-color:#e2e8f0}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -280,6 +282,11 @@ body.light .chat-msg .bubble{border-color:#e2e8f0}
         <p>Pregled sustava u realnom vremenu</p>
       </div>
       <div class="cards" id="dashCards"></div>
+      <div class="charts-grid" id="dashCharts">
+        <div class="chart-box"><h4 style="margin:0 0 8px">📈 Knjiženja po danima</h4><canvas id="chartBookings"></canvas></div>
+        <div class="chart-box"><h4 style="margin:0 0 8px">🧩 Korištenje modula</h4><canvas id="chartModules"></canvas></div>
+        <div class="chart-box"><h4 style="margin:0 0 8px">🏢 Raspodjela po klijentima</h4><canvas id="chartClients"></canvas></div>
+      </div>
       <div style="overflow-x:auto">
         <table>
           <thead><tr><th>Modul</th><th>Status</th><th>Procesiranih</th><th>Uspješnost</th></tr></thead>
@@ -595,6 +602,91 @@ async function loadDashboard(){
       <div class="card"><div class="card-icon">✏️</div><div class="card-value">${d.corrections||0}</div><div class="card-label">Ispravaka</div></div>
       <div class="card"><div class="card-icon">👥</div><div class="card-value">${d.active_sessions||0}</div><div class="card-label">Aktivnih sesija</div></div>`;
   }catch(e){console.error('dashboard',e)}
+  // Load charts after cards
+  loadDashboardCharts();
+}
+
+// Chart instances (destroy before re-create to avoid memory leak)
+let _chartInstances={};
+function _getOrCreateChart(canvasId, config){
+  if(_chartInstances[canvasId]){_chartInstances[canvasId].destroy()}
+  const ctx=document.getElementById(canvasId);
+  if(!ctx)return null;
+  const chart=new Chart(ctx,config);
+  _chartInstances[canvasId]=chart;
+  return chart;
+}
+
+async function loadDashboardCharts(){
+  if(typeof Chart==='undefined'){console.warn('Chart.js not loaded');return}
+  try{
+    const r=await fetch(API+'/dashboard/chart-data?period=week',{headers:authHeaders()});
+    const d=await r.json();
+
+    // 1. Knjiženja line chart
+    const bc=d.bookings_chart;
+    if(bc){
+      _getOrCreateChart('chartBookings',{
+        type:'line',
+        data:{
+          labels:bc.labels,
+          datasets:bc.datasets.map(ds=>({
+            label:ds.label,
+            data:ds.data,
+            borderColor:ds.color,
+            backgroundColor:ds.color+'20',
+            fill:true,
+            tension:0.3,
+            pointRadius:3,
+          }))
+        },
+        options:{responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{position:'bottom',labels:{color:'#9ca3af',font:{size:11}}}},
+          scales:{x:{ticks:{color:'#9ca3af'}},y:{beginAtZero:true,ticks:{color:'#9ca3af'}}}
+        }
+      });
+    }
+
+    // 2. Module usage bar chart
+    const mu=d.module_usage;
+    if(mu){
+      _getOrCreateChart('chartModules',{
+        type:'bar',
+        data:{
+          labels:mu.labels,
+          datasets:[{
+            label:'Poziva',
+            data:mu.data,
+            backgroundColor:['#6366f1','#8b5cf6','#a78bfa','#c4b5fd','#22c55e','#f59e0b'],
+            borderRadius:6,
+          }]
+        },
+        options:{responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{display:false}},
+          scales:{x:{ticks:{color:'#9ca3af'}},y:{beginAtZero:true,ticks:{color:'#9ca3af'}}}
+        }
+      });
+    }
+
+    // 3. Client distribution doughnut
+    const cd=d.client_distribution;
+    if(cd){
+      _getOrCreateChart('chartClients',{
+        type:'doughnut',
+        data:{
+          labels:cd.labels,
+          datasets:[{
+            data:cd.data,
+            backgroundColor:['#6366f1','#22c55e','#f59e0b','#64748b'],
+            borderWidth:0,
+          }]
+        },
+        options:{responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{position:'bottom',labels:{color:'#9ca3af',font:{size:11}}}}
+        }
+      });
+    }
+  }catch(e){console.error('chart-data',e)}
 }
 
 // ═══════════════════════════════════════════

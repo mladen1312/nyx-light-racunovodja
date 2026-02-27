@@ -625,3 +625,61 @@ class TestNewMultiClientPipeline:
         pipe.process(filename="b.sta", text="izvod")
         stats = pipe.get_stats()
         assert stats["total_processed"] == 2
+
+
+# ═══════════════════════════════════════════
+# CHAT + RAG INTEGRATION
+# ═══════════════════════════════════════════
+
+class TestChatRAGIntegration:
+    """Verifikacija da chat koristi RAG i module fallback."""
+
+    def test_fallback_uses_rag(self):
+        from nyx_light.llm.chat_bridge import ChatBridge
+        bridge = ChatBridge()
+        resp = bridge._fallback_response("Koja je stopa PDV-a?")
+        assert "PDV" in resp
+        assert "25%" in resp
+
+    def test_fallback_payroll_calculation(self):
+        from nyx_light.llm.chat_bridge import ChatBridge
+        bridge = ChatBridge()
+        resp = bridge._fallback_response("Bruto plaća 2500 EUR")
+        assert "Za isplatu" in resp or "isplatu" in resp.lower() or "MIO" in resp
+        assert "2,500" in resp or "2500" in resp
+
+    def test_fallback_kontiranje(self):
+        from nyx_light.llm.chat_bridge import ChatBridge
+        bridge = ChatBridge()
+        resp = bridge._fallback_response("Kako kontirati uredski materijal?")
+        assert "kontir" in resp.lower()
+
+    def test_fallback_greeting(self):
+        from nyx_light.llm.chat_bridge import ChatBridge
+        bridge = ChatBridge()
+        resp = bridge._fallback_response("Pozdrav!")
+        assert "Nyx Light" in resp or "asistent" in resp.lower()
+
+    def test_rag_store_search_returns_results(self):
+        from nyx_light.rag.embedded_store import EmbeddedVectorStore
+        store = EmbeddedVectorStore()
+        results = store.search("porez na dobit", top_k=3)
+        assert len(results) >= 1
+        assert hasattr(results[0], "text")
+        assert len(results[0].text) > 0
+
+    def test_chat_endpoint_with_rag(self):
+        """Test da chat endpoint uključuje RAG u context."""
+        from fastapi.testclient import TestClient
+        from nyx_light.api.app import app
+        client = TestClient(app)
+        resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        token = resp.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = client.post("/api/chat", headers=headers,
+                          json={"message": "Koja je stopa PDV-a za hranu?"})
+        assert resp.status_code == 200
+        content = resp.json().get("content", "")
+        assert len(content) > 20  # Not empty
+        assert "PDV" in content or "porez" in content.lower()

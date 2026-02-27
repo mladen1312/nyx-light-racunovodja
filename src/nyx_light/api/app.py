@@ -116,8 +116,8 @@ async def lifespan(app: FastAPI):
 
     # Start nightly scheduler in background
     try:
-        from nyx_light.scheduler import NightlyScheduler
-        state._scheduler = NightlyScheduler()
+        from nyx_light.scheduler import NyxScheduler
+        state._scheduler = NyxScheduler()
         asyncio.create_task(state._scheduler.start())
         logger.info("Noćni scheduler pokrenut")
     except Exception as e:
@@ -954,9 +954,9 @@ async def parse_bank_statement(request: Request, user=Depends(get_current_user))
     data = await request.json()
     if not data.get("filepath"):
         raise HTTPException(400, "filepath obavezan")
-    from nyx_light.modules.bank_parser.parser import BankParser
+    from nyx_light.modules.bank_parser.parser import BankStatementParser
     try:
-        return BankParser().parse(data["filepath"], data.get("bank", ""))
+        return BankStatementParser().parse(data["filepath"], data.get("bank", ""))
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -1075,25 +1075,75 @@ async def validate_e_racun(data: dict, user=Depends(get_current_user)):
 
 @app.post("/api/pdv-prijava/generate")
 async def generate_pdv_prijava(data: dict, user=Depends(get_current_user)):
-    from nyx_light.modules.pdv_prijava import PDVPrijavaEngine
+    from nyx_light.modules.pdv_prijava import PDVPrijavaEngine, PDVStavka
     engine = PDVPrijavaEngine()
-    # Use existing engine
-    return engine.generate_pdv_obrazac(data)
+    try:
+        # Build PDVStavka list from incoming data
+        stavke_raw = data.get("stavke", [])
+        stavke = []
+        for s in stavke_raw:
+            stavke.append(PDVStavka(
+                tip=s.get("tip", "izlazni"),
+                broj_racuna=s.get("broj_racuna", ""),
+                osnovica=s.get("osnovica", 0),
+                pdv_stopa=s.get("pdv_stopa", 25),
+                pdv_iznos=s.get("pdv_iznos", 0),
+                oib_partnera=s.get("oib_partnera", ""),
+            ))
+        # If no stavke but has top-level fields (quick mode)
+        if not stavke and data.get("isporuke_25"):
+            stavke.append(PDVStavka(
+                tip="izlazni",
+                osnovica=data.get("isporuke_25", 0),
+                pdv_stopa=25, pdv_iznos=data.get("pdv_25", 0),
+            ))
+        ppo = engine.calculate(
+            stavke=stavke,
+            oib_obveznika=data.get("oib_obveznik", ""),
+            naziv_obveznika=data.get("naziv_obveznik", ""),
+            period=data.get("period_od", "")[:7] if data.get("period_od") else "",
+        )
+        return engine.to_dict(ppo)
+    except Exception as e:
+        return {"error": str(e), "status": "fallback", "oib": data.get("oib_obveznik", "")}
 
 # ── JOPPD XML ──
 
 @app.post("/api/joppd/generate-xml")
 async def generate_joppd_xml(data: dict, user=Depends(get_current_user)):
-    from nyx_light.modules.e_racun import ERacunGenerator  # reuse XML util
-    from xml.etree.ElementTree import Element, SubElement, tostring, indent
-    # Use JOPPD from pdv_prijava module
     try:
-        from nyx_light.modules.joppd import JOPPDGenerator
+        from nyx_light.modules.joppd import JOPPDGenerator, JOPPDObrazac, JOPPDStavka
+        from datetime import datetime
         gen = JOPPDGenerator()
-        result = gen.generate(data)
+        radnici = data.get("radnici", [])
+        now = datetime.now()
+
+        obrazac = JOPPDObrazac(
+            oznaka=f"{now.year}-{now.month:03d}",
+            datum_predaje=now.strftime("%Y-%m-%d"),
+            datum_isplate=data.get("datum_obracuna", now.strftime("%Y-%m-%d")),
+            oib_obveznika=data.get("obveznik_oib", ""),
+            naziv_obveznika=data.get("obveznik_naziv", ""),
+        )
+        for i, r in enumerate(radnici, 1):
+            obrazac.stavke.append(JOPPDStavka(
+                redni_broj=i,
+                oib_primatelja=r.get("oib", ""),
+                ime_prezime=r.get("ime_prezime", ""),
+                bruto=r.get("bruto", 0),
+                mio_stup_1=r.get("mio_i", 0),
+                mio_stup_2=r.get("mio_ii", 0),
+                dohodak=r.get("dohodak", 0),
+                porez=r.get("porez", 0),
+                prirez=r.get("prirez", 0),
+                neto=r.get("neto", 0),
+            ))
+        xml_str = gen.to_xml(obrazac)
+        result = gen.to_dict(obrazac)
+        result["xml"] = xml_str
         return result
-    except Exception:
-        return {"status": "joppd_xml_placeholder", "data": data}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "data": data}
 
 # ── Kompenzacije ──
 

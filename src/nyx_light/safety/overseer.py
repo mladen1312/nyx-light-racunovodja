@@ -26,7 +26,8 @@ logger = logging.getLogger("nyx_light.safety")
 # ═══════════════════════════════════════════════════════
 FORBIDDEN_DOMAINS = [
     "sastavljanje ugovora", "sastavi mi ugovor", "sastavi ugovor",
-    "napravi ugovor", "napiši ugovor",
+    "napravi ugovor", "napiši ugovor", "napiši mi ugovor",
+    "kreiraj ugovor", "izradi ugovor", "pripremi ugovor",
     "tužb", "sud ",     # NB: "sud " s razmakom
     "kazneno pravo", "prekršajno pravo",
     "ovrha ", "ovršni postupak",
@@ -35,6 +36,8 @@ FORBIDDEN_DOMAINS = [
     "spajanje poduzeća", "preuzimanje poduzeća",
     "burza", "dionice",
     "utaja poreza",
+    "otkazati radniku", "otkaz radniku", "dati otkaz",
+    "disciplinski postupak", "upozorenje radniku",
 ]
 
 # ═══════════════════════════════════════════════════════

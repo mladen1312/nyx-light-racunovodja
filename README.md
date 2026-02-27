@@ -50,10 +50,6 @@ bez eksplicitnog klika "Odobri" (Human-in-the-Loop).
 | **M3 Ultra** (28-core CPU, 60-core GPU) | 96, 256, 512 GB | **512 GB** | $3.999 |
 | **M3 Ultra** (32-core CPU, 80-core GPU) | 96, 256, 512 GB | **512 GB** | $5.499 |
 
-**⚠️ NE POSTOJI:**
-- ~~M4 Ultra~~ — Apple je preskočio. M4 Max nema UltraFusion konektor.
-- ~~M5 Ultra~~ — Najavljeno za 2026., ali na dan 27.02.2026. JOŠ NIJE izašao.
-- ~~Mac Studio s 192 GB~~ — Nije dostupna konfiguracija. M4 Max → max 128 GB, M3 Ultra → 96/256/512 GB.
 
 ### Preporučeni hardver za Nyx Light
 

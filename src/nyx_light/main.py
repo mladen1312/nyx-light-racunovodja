@@ -1,59 +1,61 @@
-#!/usr/bin/env python3
 """
 Nyx Light — Računovođa: Main Entry Point
 
-Pokreće FastAPI server s vllm-mlx inference engineom
-za 15 paralelnih korisnika na Mac Studio M3 Ultra (256 GB).
-
-Usage:
-    python -m nyx_light.main
-    python -m nyx_light.main --host 0.0.0.0 --port 8000
+Pokreni s: python -m nyx_light.main
+Ili:       uvicorn nyx_light.api.app:app --host 0.0.0.0 --port 7860
 """
 
-import argparse
-import asyncio
 import logging
+import os
 import sys
+from pathlib import Path
+
+# Setup logging
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+LOG_DIR = Path("data/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    format=LOG_FORMAT,
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(LOG_DIR / "nyx_light.log", encoding="utf-8"),
+    ],
 )
 logger = logging.getLogger("nyx_light")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Nyx Light — Računovođa")
-    parser.add_argument("--host", default="0.0.0.0", help="Bind host")
-    parser.add_argument("--port", type=int, default=8000, help="Bind port")
-    parser.add_argument("--workers", type=int, default=1, help="Uvicorn workers")
-    parser.add_argument("--reload", action="store_true", help="Auto-reload for dev")
-    parser.add_argument("--debug", action="store_true", help="Debug mode")
-    args = parser.parse_args()
+    """Start Nyx Light server."""
+    import uvicorn
 
-    if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
+    host = os.environ.get("NYX_HOST", "0.0.0.0")
+    port = int(os.environ.get("NYX_PORT", "7860"))
+    workers = int(os.environ.get("NYX_WORKERS", "1"))
+    reload_flag = os.environ.get("NYX_DEV", "0") == "1"
 
-    logger.info("═" * 60)
-    logger.info("  🌙 Nyx Light — Računovođa v1.0.0")
-    logger.info("  Privatni AI sustav za računovodstvo RH")
-    logger.info("  © 2026 Dr. Mladen Mešter | Nexellum Lab d.o.o.")
-    logger.info("═" * 60)
+    logger.info("🌙 Nyx Light — Računovođa")
+    logger.info("   Host: %s:%d", host, port)
+    logger.info("   Workers: %d", workers)
+    logger.info("   Dev mode: %s", reload_flag)
 
-    try:
-        import uvicorn
-        uvicorn.run(
-            "nyx_light.api.app:app",
-            host=args.host,
-            port=args.port,
-            workers=args.workers,
-            reload=args.reload,
-            log_level="debug" if args.debug else "info",
-        )
-    except ImportError:
-        logger.error("uvicorn not installed. Run: pip install uvicorn")
-        sys.exit(1)
+    # Ensure data dirs exist
+    for d in ["data/memory_db", "data/rag_db", "data/dpo_datasets",
+              "data/models/lora", "data/laws", "data/exports",
+              "data/backups", "data/logs", "data/incoming_laws",
+              "data/uploads", "data/prompt_cache"]:
+        Path(d).mkdir(parents=True, exist_ok=True)
+
+    uvicorn.run(
+        "nyx_light.api.app:app",
+        host=host,
+        port=port,
+        workers=workers,
+        reload=reload_flag,
+        log_level="info",
+        access_log=True,
+    )
 
 
 if __name__ == "__main__":

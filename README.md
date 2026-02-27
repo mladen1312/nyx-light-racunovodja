@@ -122,10 +122,21 @@ Mac Studio s **M5 Ultra** čipom je najavljen za prvu polovicu 2026. Kad bude do
 
 ## 🚀 Brza instalacija
 
-**Za osobu koja NE ZNA informatiku — samo 2 koraka:**
+### Metoda 1: ZIP paket ⭐ (preporučeno — ne treba GitHub)
 
-1. Otvorite **Terminal** (Cmd+Space → upišite "Terminal" → Enter)
-2. Zalijepite ovo i pritisnite Enter:
+**Admin** kreira paket: `./create_release.sh` → dobije ZIP (~5 MB)
+
+**Korisnik** (ne mora znati informatiku):
+1. Primi ZIP (USB, AirDrop, email, mrežna mapa)
+2. Raspakira (dvaput klikne)
+3. Otvori **Terminal** (Cmd+Space → "Terminal" → Enter)
+4. Zalijepi i pritisne Enter:
+```bash
+cd ~/Downloads/nyx-light-installer-*
+chmod +x install.sh && ./install.sh
+```
+
+### Metoda 2: Git clone (ako je repo javan)
 
 ```bash
 git clone https://github.com/mladen1312/nyx-light-racunovodja.git
@@ -133,8 +144,14 @@ cd nyx-light-racunovodja
 chmod +x install.sh && ./install.sh
 ```
 
-Skripta automatski instalira **SVE**: Homebrew, Python, pakete, AI modele, baze zakona.
-Trajanje: 30-60 minuta. Na kraju se otvara browser na `http://localhost:7860`.
+### Metoda 3: Git clone s tokenom (ako je repo privatan)
+
+```bash
+git clone https://TOKEN@github.com/mladen1312/nyx-light-racunovodja.git
+cd nyx-light-racunovodja
+chmod +x install.sh && ./install.sh
+```
+*(TOKEN dobijete od administratora — GitHub → Settings → Developer settings → Personal access tokens)*
 
 **Login:** `admin` / `admin123` (promijenite odmah!)
 
@@ -142,8 +159,8 @@ Trajanje: 30-60 minuta. Na kraju se otvara browser na `http://localhost:7860`.
 ```bash
 ./start.sh              # Pokreni sustav
 ./start.sh stop         # Zaustavi
-./start.sh status       # Provjeri stanje
 ./start.sh restart      # Restart
+./start.sh status       # Provjeri stanje
 ./start.sh ingest-laws  # Ažuriraj zakone
 ```
 

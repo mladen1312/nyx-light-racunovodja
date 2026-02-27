@@ -317,13 +317,17 @@ class NyxLightApp:
         """
         Obradi bankovni izvod: Parse → Sparivanje → Pipeline batch.
         """
+        import tempfile
         erp = self.get_client_erp(client_id)
 
-        # Parse
-        if bank.lower() in ("mt940",):
-            transactions = self.bank_parser.parse_mt940(content)
-        else:
-            transactions = self.bank_parser.parse_csv(content, bank)
+        # Save content to temp file and parse
+        suffix = ".sta" if bank.lower() == "mt940" else ".csv"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as f:
+            f.write(content)
+            f.flush()
+            transactions = self.bank_parser.parse(f.name, bank)
+            import os
+            os.unlink(f.name)
 
         # Convert & submit batch
         proposals = self.pipeline.from_bank_statement(transactions, client_id, erp)

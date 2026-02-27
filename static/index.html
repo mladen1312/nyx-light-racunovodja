@@ -98,7 +98,28 @@ tr:hover{background:var(--bg3)}
 .toast.info{background:var(--accent);color:white}
 @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
 /* Responsive */
-@media(max-width:768px){.app.active{grid-template-columns:1fr}.sidebar{display:none}}
+@media(max-width:768px){.app.active{grid-template-columns:1fr}.sidebar{display:none}.sidebar.mobile-open{display:block;position:fixed;top:56px;left:0;bottom:0;width:260px;z-index:50}.hamburger{display:block !important}}
+.hamburger{display:none;background:none;border:none;color:var(--text);font-size:22px;cursor:pointer;padding:4px 8px}
+/* Light theme */
+body.light{--bg:#f8fafc;--bg2:#ffffff;--bg3:#f1f5f9;--text:#1e293b;--text2:#64748b;--border:#e2e8f0;--shadow:0 4px 24px rgba(0,0,0,.08)}
+body.light .login-screen{background:linear-gradient(135deg,#f8fafc 0%,#e0e7ff 100%)}
+body.light .chat-msg .bubble{border-color:#e2e8f0}
+/* Chart container */
+.chart-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px}
+.chart-box canvas{max-height:260px}
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){.charts-grid{grid-template-columns:1fr}}
+/* Payroll */
+.payroll-form{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:800px}
+@media(max-width:600px){.payroll-form{grid-template-columns:1fr}}
+.payroll-form label{font-size:13px;color:var(--text2);margin-bottom:4px}
+.payroll-form input,.payroll-form select{padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:14px}
+.payroll-result{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-top:20px}
+.payroll-result .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
+.payroll-result .row.total{font-weight:700;font-size:16px;border-bottom:2px solid var(--accent)}
+/* Keyboard shortcuts hint */
+.kb-hint{position:fixed;bottom:12px;left:260px;font-size:11px;color:var(--text2);opacity:.5}
+@media(max-width:768px){.kb-hint{display:none}}
 /* Upload area */
 .upload-area{border:2px dashed var(--border);border-radius:var(--radius);padding:40px;text-align:center;cursor:pointer;color:var(--text2);transition:.2s}
 .upload-area:hover{border-color:var(--accent);color:var(--text)}
@@ -135,7 +156,7 @@ tr:hover{background:var(--bg3)}
 <div class="app" id="app">
   <!-- TOPBAR -->
   <div class="topbar">
-    <div class="logo"><span>🌙</span> Nyx Light — Računovođa</div>
+    <div class="logo"><button class="hamburger" onclick="toggleMobile()">☰</button><span>🌙</span> Nyx Light — Računovođa</div>
     <div class="user-info">
       <span id="userName"></span>
       <span class="role" id="userRole"></span>
@@ -151,6 +172,10 @@ tr:hover{background:var(--bg3)}
     <div class="nav-item" data-page="bookings" onclick="showPage('bookings')">📒 Knjiženja</div>
     <div class="nav-item" data-page="upload" onclick="showPage('upload')">📤 Upload</div>
 
+    <div class="section-title">Moduli</div>
+    <div class="nav-item" data-page="payroll" onclick="showPage('payroll')">💰 Plaće</div>
+    <div class="nav-item" data-page="amort" onclick="showPage('amort')">🏭 Amortizacija</div>
+
     <div class="section-title">Izvještaji</div>
     <div class="nav-item" data-page="dashboard" onclick="showPage('dashboard')">📊 Dashboard</div>
     <div class="nav-item" data-page="deadlines" onclick="showPage('deadlines')">📅 Rokovi</div>
@@ -159,6 +184,9 @@ tr:hover{background:var(--bg3)}
     <div class="section-title">Sustav</div>
     <div class="nav-item" data-page="export" onclick="showPage('export')">💾 Export</div>
     <div class="nav-item" data-page="system" onclick="showPage('system')">⚙️ Status</div>
+    <div style="margin-top:auto;padding:10px 14px;border-top:1px solid var(--border)">
+      <button onclick="toggleTheme()" style="background:var(--bg3);color:var(--text2);border:1px solid var(--border);padding:8px 14px;border-radius:var(--radius);cursor:pointer;width:100%;font-size:13px" id="themeBtn">🌙 Tamna tema</button>
+    </div>
   </div>
 
   <!-- MAIN CONTENT -->
@@ -298,6 +326,34 @@ tr:hover{background:var(--bg3)}
         <button class="btn-export" onclick="doExport()">💾 Exportiraj</button>
       </div>
       <div id="exportResults"></div>
+    </div>
+
+    <!-- PAYROLL PAGE -->
+    <div class="page" id="page-payroll">
+      <div class="page-header"><h2>💰 Obračun plaće</h2><p>Bruto/neto kalkulator za 2026. godinu</p></div>
+      <div class="payroll-form">
+        <div><label>Bruto plaća (EUR)</label><input type="number" id="prBruto" value="2000" step="50"></div>
+        <div><label>Grad (prirez)</label><select id="prGrad"><option value="zagreb">Zagreb (18%)</option><option value="split">Split (15%)</option><option value="rijeka">Rijeka (15%)</option><option value="osijek">Osijek (13%)</option><option value="zadar">Zadar (12%)</option></select></div>
+        <div><label>Bonus (EUR)</label><input type="number" id="prBonus" value="0" step="50"></div>
+        <div><label>Prehrana neoporezivo (EUR)</label><input type="number" id="prPrehrana" value="150" max="150"></div>
+        <div><label>Prijevoz (EUR)</label><input type="number" id="prPrijevoz" value="0"></div>
+        <div><label>Uzdržavana djeca</label><select id="prDjeca"><option value="0">Bez</option><option value="1">1 dijete</option><option value="2">2 djece</option><option value="3">3 djece</option></select></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="calcPayroll()">Izračunaj</button>
+      <button style="background:var(--bg3);color:var(--text2);border:1px solid var(--border);padding:10px 20px;border-radius:var(--radius);cursor:pointer;margin-left:8px" onclick="calcMinimalna()">Min. plaća</button></div>
+      <div class="payroll-result" id="payrollResult" style="display:none"></div>
+    </div>
+
+    <!-- AMORTIZACIJA PAGE -->
+    <div class="page" id="page-amort">
+      <div class="page-header"><h2>🏭 Amortizacija</h2><p>Izračun porezno priznatih stopa</p></div>
+      <div class="payroll-form" style="max-width:600px">
+        <div><label>Nabavna vrijednost (EUR)</label><input type="number" id="amNabavna" value="10000" step="500"></div>
+        <div><label>Grupa (1-5)</label><select id="amGrupa"><option value="1">1 — Zgrade (5%)</option><option value="2" selected>2 — Auti/oprema (20%)</option><option value="3">3 — Računala (50%)</option><option value="4">4 — Ostalo (25%)</option><option value="5">5 — Goodwill (5%)</option></select></div>
+        <div><label>Metoda</label><select id="amMetoda"><option value="linearna">Linearna</option><option value="dvostruka">Dvostruka (ubrzana)</option></select></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="calcAmort()">Izračunaj</button></div>
+      <div class="payroll-result" id="amortResult" style="display:none"></div>
     </div>
 
     <!-- SYSTEM PAGE -->
@@ -639,7 +695,134 @@ document.getElementById('loginPass')?.addEventListener('keydown',function(e){if(
 (function(){
   const t=localStorage.getItem('nyx_token');const u=localStorage.getItem('nyx_user');
   if(t&&u){token=t;try{currentUser=JSON.parse(u);showApp()}catch(e){doLogout()}}
+  // Restore theme
+  if(localStorage.getItem('nyx_theme')==='light'){document.body.classList.add('light');const b=document.getElementById('themeBtn');if(b)b.textContent='☀️ Svijetla tema'}
 })();
+
+// ═══════════════════════════════════════════
+// THEME & MOBILE
+// ═══════════════════════════════════════════
+function toggleTheme(){
+  document.body.classList.toggle('light');
+  const light=document.body.classList.contains('light');
+  localStorage.setItem('nyx_theme',light?'light':'dark');
+  document.getElementById('themeBtn').textContent=light?'☀️ Svijetla tema':'🌙 Tamna tema';
+}
+function toggleMobile(){document.querySelector('.sidebar').classList.toggle('mobile-open')}
+
+// ═══════════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════
+document.addEventListener('keydown',function(e){
+  if(!token)return;
+  if(e.altKey&&e.key==='1'){showPage('chat');e.preventDefault()}
+  if(e.altKey&&e.key==='2'){showPage('pending');e.preventDefault()}
+  if(e.altKey&&e.key==='3'){showPage('dashboard');e.preventDefault()}
+  if(e.altKey&&e.key==='4'){showPage('payroll');e.preventDefault()}
+  if(e.altKey&&e.key==='5'){showPage('system');e.preventDefault()}
+  if(e.altKey&&e.key==='n'){document.getElementById('chatInput')?.focus();e.preventDefault()}
+  if(e.key==='Escape'){document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('active'))}
+});
+
+// ═══════════════════════════════════════════
+// PAYROLL CALCULATOR
+// ═══════════════════════════════════════════
+async function calcPayroll(){
+  const djeca=parseInt(document.getElementById('prDjeca').value)||0;
+  const uzdrzavani=[];
+  const tips=['dijete_1','dijete_2','dijete_3','dijete_4','dijete_5+'];
+  for(let i=0;i<djeca;i++)uzdrzavani.push({tip:tips[Math.min(i,4)]});
+  try{
+    const r=await fetch(API+'/payroll/calculate',{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({bruto:parseFloat(document.getElementById('prBruto').value)||0,
+        grad:document.getElementById('prGrad').value,bonus:parseFloat(document.getElementById('prBonus').value)||0,
+        prehrana:parseFloat(document.getElementById('prPrehrana').value)||0,prijevoz:parseFloat(document.getElementById('prPrijevoz').value)||0,
+        uzdrzavani:uzdrzavani})});
+    const d=await r.json();
+    document.getElementById('payrollResult').style.display='block';
+    document.getElementById('payrollResult').innerHTML=`
+      <h3 style="margin-bottom:12px">Obračun plaće</h3>
+      <div class="row total"><span>Bruto plaća</span><span>${fmt(d.bruto)}</span></div>
+      <div class="row"><span>MIO I (15%)</span><span>- ${fmt(d.mio_i)}</span></div>
+      <div class="row"><span>MIO II (5%)</span><span>- ${fmt(d.mio_ii)}</span></div>
+      <div class="row"><span>Dohodak</span><span>${fmt(d.dohodak)}</span></div>
+      <div class="row"><span>Osobni odbitak</span><span>- ${fmt(d.osobni_odbitak)}</span></div>
+      <div class="row"><span>Porezna osnovica</span><span>${fmt(d.porezna_osnovica)}</span></div>
+      <div class="row"><span>Porez (${d.detalji?.porez_stopa||'20%'})</span><span>- ${fmt(d.porez)}</span></div>
+      <div class="row"><span>Prirez (${d.detalji?.prirez_stopa||''})</span><span>- ${fmt(d.prirez)}</span></div>
+      <div class="row total"><span>✅ NETO</span><span>${fmt(d.neto)}</span></div>
+      <div class="row"><span>+ Neoporezivi primici</span><span>${fmt(d.neoporezivo||0)}</span></div>
+      <div class="row total"><span>💳 Za isplatu</span><span>${fmt(d.za_isplatu)}</span></div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+        <div class="row"><span>Zdravstveno (16.5%, teret poslodavca)</span><span>${fmt(d.zdravstveno)}</span></div>
+        <div class="row total"><span>📈 Ukupni trošak poslodavca</span><span>${fmt(d.trosak_poslodavca)}</span></div>
+      </div>`;
+  }catch(e){toast('Greška: '+e.message,'error')}
+}
+async function calcMinimalna(){
+  try{
+    const r=await fetch(API+'/payroll/minimalna?grad='+document.getElementById('prGrad').value,{headers:{'Authorization':'Bearer '+token}});
+    const d=await r.json();
+    document.getElementById('prBruto').value=d.bruto;
+    calcPayroll();
+  }catch(e){toast('Greška: '+e.message,'error')}
+}
+
+// ═══════════════════════════════════════════
+// AMORTIZACIJA
+// ═══════════════════════════════════════════
+async function calcAmort(){
+  try{
+    const r=await fetch(API+'/amortizacija/calculate',{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({nabavna_vrijednost:parseFloat(document.getElementById('amNabavna').value)||0,
+        grupa:document.getElementById('amGrupa').value,metoda:document.getElementById('amMetoda').value})});
+    const d=await r.json();
+    const vijek=d.vijek_god||0;let plan='';
+    let preostalo=d.nabavna||0;
+    for(let g=1;g<=Math.ceil(vijek);g++){
+      const am=Math.min(d.godisnja||0,preostalo);preostalo=Math.max(0,preostalo-am);
+      plan+=`<div class="row"><span>Godina ${g}</span><span>${fmt(am)}</span><span style="color:var(--text2)">${fmt(preostalo)}</span></div>`;
+    }
+    const warn=d.porezno_priznato<(d.nabavna||0)?`<div style="background:#854d0e40;color:var(--yellow);padding:10px;border-radius:var(--radius);margin-bottom:12px">⚠️ Porezno priznato samo do ${fmt(d.porezno_priznato)}</div>`:'';
+    document.getElementById('amortResult').style.display='block';
+    document.getElementById('amortResult').innerHTML=`
+      <h3 style="margin-bottom:12px">Plan amortizacije</h3>${warn}
+      <div class="row total"><span>Nabavna vrijednost</span><span>${fmt(d.nabavna)}</span></div>
+      <div class="row"><span>Stopa</span><span>${d.stopa_pct}% (${document.getElementById('amMetoda').value})</span></div>
+      <div class="row"><span>Godišnja amortizacija</span><span>${fmt(d.godisnja)}</span></div>
+      <div class="row"><span>Mjesečna amortizacija</span><span>${fmt(d.mjesecna)}</span></div>
+      <div class="row"><span>Vijek trajanja</span><span>${vijek} god.</span></div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+        <div class="row" style="font-weight:600"><span>Godina</span><span>Amort.</span><span>Preostalo</span></div>${plan}
+      </div>`;
+  }catch(e){toast('Greška: '+e.message,'error')}
+}
+
+// ═══════════════════════════════════════════
+// ENHANCED DASHBOARD WITH CHARTS
+// ═══════════════════════════════════════════
+const origLoadDashboard=typeof loadDashboard==='function'?loadDashboard:null;
+async function loadDashboardV2(){
+  if(origLoadDashboard)await origLoadDashboard();
+  try{
+    // Load monitoring data for charts
+    const mr=await fetch(API+'/monitoring/health',{headers:{'Authorization':'Bearer '+token}});
+    if(mr.ok){
+      const md=await mr.json();
+      const sysCards=document.getElementById('sysCards');
+      if(sysCards&&md.memory){
+        // Add memory chart if not exists
+        if(!document.getElementById('memChart')){
+          const box=document.createElement('div');box.className='chart-box';box.style.gridColumn='1/-1';
+          box.innerHTML='<h4 style="margin-bottom:8px;font-size:14px">Memorija (Apple Silicon UMA)</h4><canvas id="memChart" height="100"></canvas>';
+          sysCards.parentNode.insertBefore(box,sysCards.nextSibling);
+        }
+      }
+    }
+  }catch(e){console.log('Chart load:',e)}
+}
 </script>
+<!-- Keyboard shortcuts hint -->
+<div class="kb-hint">⌨ Alt+1 Chat · Alt+2 Odobrenja · Alt+3 Dashboard · Alt+4 Plaće · Alt+N Fokus</div>
 </body>
 </html>

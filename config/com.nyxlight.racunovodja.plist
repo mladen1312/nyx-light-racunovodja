@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nyx Light — LaunchDaemon za automatsko pokretanje na Mac Studio
+
+  Instalacija:
+    sudo cp config/com.nyxlight.racunovodja.plist /Library/LaunchDaemons/
+    sudo launchctl load /Library/LaunchDaemons/com.nyxlight.racunovodja.plist
+
+  Provjera:
+    sudo launchctl list | grep nyx
+
+  Deinstalacija:
+    sudo launchctl unload /Library/LaunchDaemons/com.nyxlight.racunovodja.plist
+    sudo rm /Library/LaunchDaemons/com.nyxlight.racunovodja.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nyxlight.racunovodja</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/Shared/nyx-light-racunovodja/start.sh</string>
+        <string>start</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/Shared/nyx-light-racunovodja</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/Shared/nyx-light-racunovodja/data/logs/launchd.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/Shared/nyx-light-racunovodja/data/logs/launchd_error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NYX_HOST</key>
+        <string>0.0.0.0</string>
+        <key>NYX_PORT</key>
+        <string>7860</string>
+        <key>NYX_WORKERS</key>
+        <string>4</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- Restart after crash (wait 10s) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Process limits for Mac Studio -->
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+</dict>
+</plist>

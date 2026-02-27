@@ -839,3 +839,168 @@ async def health():
 @app.get("/api/health")
 async def api_health():
     return {"status": "ok", "storage": state.storage is not None, "auth": state.auth is not None}
+
+
+# ═══════════════════════════════════════════════════════
+# MODULE ROUTER + PAYROLL + KG + METRICS + INGEST + MODULES
+# ═══════════════════════════════════════════════════════
+
+@app.post("/api/route")
+async def route_message(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.router import ModuleRouter
+    router = ModuleRouter()
+    result = router.route(data.get("message", ""), data.get("has_file", False))
+    return {"module": result.module, "confidence": result.confidence,
+            "sub_intent": result.sub_intent, "entities": result.entities}
+
+@app.get("/api/modules")
+async def list_modules(user=Depends(get_current_user)):
+    from nyx_light.router import ModuleRouter
+    return {"modules": ModuleRouter().get_available_modules()}
+
+@app.post("/api/payroll/calculate")
+async def calculate_payroll(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.place import PayrollCalculator, ObracunPlaceInput, UzdrzavaniClan
+    uzdrzavani = [UzdrzavaniClan(tip=u.get("tip", "dijete_1")) for u in data.get("uzdrzavani", [])]
+    inp = ObracunPlaceInput(bruto=float(data.get("bruto", 0)), grad=data.get("grad", "zagreb"),
+                            uzdrzavani=uzdrzavani, bonus=float(data.get("bonus", 0)),
+                            prehrana=float(data.get("prehrana", 0)), prijevoz=float(data.get("prijevoz", 0)))
+    r = PayrollCalculator().obracun(inp)
+    return {"bruto": r.bruto_ukupno, "mio_i": r.mio_i, "mio_ii": r.mio_ii,
+            "dohodak": r.dohodak, "osobni_odbitak": r.osobni_odbitak,
+            "porezna_osnovica": r.porezna_osnovica, "porez": r.porez, "prirez": r.prirez,
+            "neto": r.neto, "za_isplatu": r.za_isplatu,
+            "zdravstveno": r.zdravstveno, "trosak_poslodavca": r.trosak_poslodavca, "detalji": r.detalji}
+
+@app.post("/api/payroll/neto-to-bruto")
+async def neto_to_bruto(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.place import PayrollCalculator, UzdrzavaniClan
+    uzdrzavani = [UzdrzavaniClan(tip=u.get("tip", "dijete_1")) for u in data.get("uzdrzavani", [])]
+    r = PayrollCalculator().bruto_iz_neto(float(data.get("neto", 0)), data.get("grad", "zagreb"), uzdrzavani)
+    return {"bruto_potreban": r.bruto_ukupno, "neto": r.neto, "za_isplatu": r.za_isplatu,
+            "trosak_poslodavca": r.trosak_poslodavca}
+
+@app.get("/api/payroll/minimalna")
+async def minimalna_placa(grad: str = "zagreb", user=Depends(get_current_user)):
+    from nyx_light.modules.place import PayrollCalculator
+    r = PayrollCalculator().minimalna_placa(grad)
+    return {"bruto": r.bruto_ukupno, "neto": r.neto, "za_isplatu": r.za_isplatu, "grad": grad}
+
+@app.get("/api/payroll/neoporezivi")
+async def neoporezivi_primici(user=Depends(get_current_user)):
+    from nyx_light.modules.place import NEOPOREZIVI, PRIREZI
+    return {"neoporezivi": NEOPOREZIVI, "prirezi": PRIREZI}
+
+@app.get("/api/kg/stats")
+async def kg_stats(user=Depends(get_current_user)):
+    from nyx_light.kg import KnowledgeGraph
+    kg = KnowledgeGraph(); kg.seed_defaults()
+    return kg.get_stats()
+
+@app.get("/api/kg/query/{node_type}")
+async def kg_query_type(node_type: str, user=Depends(get_current_user)):
+    from nyx_light.kg import KnowledgeGraph
+    kg = KnowledgeGraph(); kg.seed_defaults()
+    return {"nodes": kg.query_by_type(node_type), "type": node_type}
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    from nyx_light.metrics import metrics
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(metrics.export(), media_type="text/plain; version=0.0.4")
+
+@app.post("/api/laws/ingest")
+async def ingest_laws(user=Depends(require_permission("update_model"))):
+    from nyx_light.rag.ingest_laws import ingest_all_laws
+    return ingest_all_laws()
+
+@app.get("/api/ingest/stats")
+async def ingest_stats(user=Depends(require_permission("view_audit"))):
+    from nyx_light.ingest.email_watcher import EmailWatcher
+    from nyx_light.ingest.folder_watcher import FolderWatcher
+    return {"email": EmailWatcher().get_stats(), "folder": FolderWatcher().get_stats()}
+
+@app.post("/api/bank/parse")
+async def parse_bank_statement(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    if not data.get("filepath"):
+        raise HTTPException(400, "filepath obavezan")
+    from nyx_light.modules.bank_parser.parser import BankParser
+    try:
+        return BankParser().parse(data["filepath"], data.get("bank", ""))
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+@app.post("/api/ios/generate")
+async def generate_ios(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.ios_reconciliation.ios import IOSReconciliation
+    return IOSReconciliation().generate_ios_form(
+        data.get("client_id", ""), data.get("partner_oib", ""),
+        data.get("datum_od", ""), data.get("datum_do", ""))
+
+@app.post("/api/blagajna/validate")
+async def validate_blagajna(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.blagajna.validator import BlagajnaValidator
+    return BlagajnaValidator().validate(float(data.get("iznos", 0)), data.get("tip", "izdatak"))
+
+@app.post("/api/putni-nalog/check")
+async def check_putni_nalog(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.putni_nalozi.checker import PutniNalogChecker
+    return PutniNalogChecker().validate(
+        km=float(data.get("km", 0)), dnevnica=float(data.get("dnevnica", 0)),
+        reprezentacija=float(data.get("reprezentacija", 0)))
+
+@app.post("/api/amortizacija/calculate")
+async def calculate_amortizacija(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    nabavna = float(data.get("nabavna_vrijednost", 0))
+    grupa = str(data.get("grupa", "2"))
+    metoda = data.get("metoda", "linearna")
+    stope = {"1": 5, "2": 20, "3": 50, "4": 25, "5": 5}
+    stopa = stope.get(grupa, 20)
+    if metoda == "dvostruka":
+        stopa *= 2
+    godisnja = round(nabavna * stopa / 100, 2)
+    porezno = min(nabavna, 40000) if grupa == "2" else nabavna
+    return {"nabavna": nabavna, "grupa": grupa, "stopa_pct": stopa,
+            "godisnja": godisnja, "mjesecna": round(godisnja / 12, 2),
+            "vijek_god": round(100 / stopa, 1) if stopa else 0,
+            "porezno_priznato": porezno}
+
+# ── ERP PULL (Import from CPP/Synesis) ──
+
+@app.get("/api/erp/kontni-plan")
+async def erp_kontni_plan(user=Depends(get_current_user)):
+    from nyx_light.erp import ERPConnector, ERPConnectionConfig
+    conn = ERPConnector(ERPConnectionConfig())
+    return {"kontni_plan": conn.pull_kontni_plan()}
+
+@app.get("/api/erp/otvorene-stavke")
+async def erp_otvorene(konto: str = "", partner_oib: str = "", user=Depends(get_current_user)):
+    from nyx_light.erp import ERPConnector, ERPConnectionConfig
+    conn = ERPConnector(ERPConnectionConfig())
+    return {"stavke": conn.pull_otvorene_stavke(konto, partner_oib)}
+
+@app.get("/api/erp/saldo/{konto}")
+async def erp_saldo(konto: str, user=Depends(get_current_user)):
+    from nyx_light.erp import ERPConnector, ERPConnectionConfig
+    conn = ERPConnector(ERPConnectionConfig())
+    return conn.pull_saldo_konta(konto)
+
+@app.get("/api/erp/bruto-bilanca")
+async def erp_bruto_bilanca(period: str = "", user=Depends(get_current_user)):
+    from nyx_light.erp import ERPConnector, ERPConnectionConfig
+    conn = ERPConnector(ERPConnectionConfig())
+    return {"bilanca": conn.pull_bruto_bilanca(period)}
+
+@app.get("/api/erp/partner-kartica/{oib}")
+async def erp_partner_kartica(oib: str, user=Depends(get_current_user)):
+    from nyx_light.erp import ERPConnector, ERPConnectionConfig
+    conn = ERPConnector(ERPConnectionConfig())
+    return {"kartica": conn.pull_partner_kartice(oib)}

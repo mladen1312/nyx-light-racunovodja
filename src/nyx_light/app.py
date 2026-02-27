@@ -30,6 +30,7 @@ from nyx_light.registry import ClientRegistry, ClientConfig
 
 # Moduli — Grupa A
 from nyx_light.modules.invoice_ocr.extractor import InvoiceExtractor
+from nyx_light.modules.invoice_ocr.eu_invoice import EUInvoiceRecognizer
 from nyx_light.modules.outgoing_invoice import OutgoingInvoiceValidator
 from nyx_light.modules.kontiranje.engine import KontiranjeEngine
 from nyx_light.modules.kontiranje.kontni_plan import get_full_kontni_plan, suggest_konto_by_keyword
@@ -127,6 +128,7 @@ class NyxLightApp:
 
         # ── Grupa A — Obrada dokumentacije ──
         self.invoice_ocr = InvoiceExtractor()          # A1
+        self.eu_invoice = EUInvoiceRecognizer()         # A1-EU
         self.outgoing_validator = OutgoingInvoiceValidator()  # A2
         self.kontiranje = KontiranjeEngine()            # A3
         self.bank_parser = BankStatementParser()        # A4
@@ -208,9 +210,18 @@ class NyxLightApp:
     ) -> Dict[str, Any]:
         """
         Obradi ulazni račun: OCR → Kontiranje → Pipeline (pending).
-        
+        Automatski detektira EU/inozemne račune i rutira ih.
         Vraća prijedlog koji čeka odobrenje.
         """
+        # Provjeri je li EU/inozemni račun
+        text = invoice_data.get("raw_text", "")
+        xml = invoice_data.get("xml_content", "")
+        vat_id = invoice_data.get("oib_izdavatelja", "") or invoice_data.get("seller_vat_id", "")
+
+        origin = self.eu_invoice.detect_origin(text=text, xml=xml, vat_id=vat_id)
+        if origin.value != "hr":
+            return self.process_eu_invoice(invoice_data, client_id, origin)
+
         erp = self.get_client_erp(client_id)
 
         # Kontiranje
@@ -221,6 +232,65 @@ class NyxLightApp:
 
         # Pipeline
         proposal = self.pipeline.from_invoice(invoice_data, konto_result, client_id, erp)
+        return self._submit(proposal)
+
+    def process_eu_invoice(
+        self, invoice_data: Dict, client_id: str, origin=None
+    ) -> Dict[str, Any]:
+        """
+        Obradi EU/inozemni račun s automatic reverse charge detekcijom.
+
+        Koraci:
+          1. Parse XML (UBL/CII/Peppol) ili OCR tekst
+          2. Detektiraj VAT ID, valutu, zemlju
+          3. Odredi PDV tretman (reverse charge, EU stjecanje, uvoz)
+          4. Predloži kontiranje s HR kontima
+          5. Šalji u Pipeline za odobrenje
+        """
+        from nyx_light.modules.invoice_ocr.eu_invoice import InvoiceOrigin
+
+        xml = invoice_data.get("xml_content", "")
+        text = invoice_data.get("raw_text", "")
+
+        # Parse
+        if xml:
+            eu_data = self.eu_invoice.parse_xml(xml)
+        else:
+            eu_data = self.eu_invoice.parse_ocr_text(text)
+
+        erp = self.get_client_erp(client_id)
+
+        # Kontiranje na temelju PDV tretmana
+        konto = "4xxx"
+        if eu_data.vat_treatment.value == "reverse_charge":
+            konto = eu_data.suggested_accounts.get("trošak", "4300")
+        elif eu_data.vat_treatment.value == "import":
+            konto = eu_data.suggested_accounts.get("trošak", "4200")
+        elif eu_data.vat_treatment.value == "eu_acquisition":
+            konto = "4100"  # Nabava iz EU
+
+        # Build proposal
+        proposal = self.pipeline.from_invoice(
+            {
+                "oib_izdavatelja": eu_data.seller_vat_id,
+                "dobavljac": eu_data.seller_name,
+                "iznos_ukupno": eu_data.total,
+                "iznos_pdv": eu_data.total_vat,
+                "iznos_osnovica": eu_data.subtotal,
+                "valuta": eu_data.currency,
+                "datum": eu_data.invoice_date,
+                "broj_racuna": eu_data.invoice_number,
+                "origin": eu_data.origin.value,
+                "vat_treatment": eu_data.vat_treatment.value,
+                "reverse_charge": eu_data.reverse_charge,
+                "seller_country": eu_data.seller_country,
+                "needs_exchange_rate": eu_data.needs_exchange_rate,
+                "warnings": eu_data.warnings,
+            },
+            {"suggested_konto": konto, "confidence": eu_data.confidence},
+            client_id,
+            erp,
+        )
         return self._submit(proposal)
 
     # ════════════════════════════════════════════════════

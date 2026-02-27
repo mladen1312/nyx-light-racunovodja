@@ -153,7 +153,7 @@ class TestModelManager:
 
     def test_recommend_model_64(self):
         spec = self.mgr.recommend_model(64)
-        assert "32" in spec.name.lower() or "R1" in spec.name
+        assert "30" in spec.name.lower() or "32" in spec.name.lower() or "R1" in spec.name
 
     def test_status(self):
         status = self.mgr.get_status()

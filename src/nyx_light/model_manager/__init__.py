@@ -59,44 +59,56 @@ class ModelSpec:
 
 # Model katalog — MLX formati za Apple Silicon
 MODEL_CATALOG: Dict[str, ModelSpec] = {
-    # LLM modeli (po RAM tierovima)
+    # ═══ LLM MODELI (po RAM tierovima) ═══
+
+    # TIER 1: 192GB+ — Najbolji mogući
     "qwen3-235b-a22b": ModelSpec(
         name="Qwen3-235B-A22B",
         hf_repo="mlx-community/Qwen3-235B-A22B-4bit",
         min_ram_gb=192,
         size_gb=124,
-        description="MoE 235B (22B aktivno) — vrhunska logika",
-        active_params="22B active / 235B total",
+        description="MoE 235B (22B aktivno) — vrhunska logika, odličan HR",
+        active_params="22B active / 235B total (MoE)",
     ),
+
+    # TIER 2: 96GB+ — Odličan fallback
     "qwen2.5-72b": ModelSpec(
         name="Qwen2.5-72B",
         hf_repo="mlx-community/Qwen2.5-72B-Instruct-4bit",
         min_ram_gb=96,
         size_gb=42,
-        description="Dense 72B — odlična logika za 96GB+",
-    ),
-    "qwen2.5-32b": ModelSpec(
-        name="Qwen2.5-32B",
-        hf_repo="mlx-community/Qwen2.5-32B-Instruct-4bit",
-        min_ram_gb=64,
-        size_gb=20,
-        description="Dense 32B — dobra za 64GB sustave",
-    ),
-    "deepseek-r1-distill-32b": ModelSpec(
-        name="DeepSeek-R1-Distill-32B",
-        hf_repo="mlx-community/DeepSeek-R1-Distill-Qwen-32B-4bit",
-        min_ram_gb=64,
-        size_gb=20,
-        description="R1 reasoning distill — odlično za kontiranje",
+        description="Dense 72B — odlična logika za 96GB sustave",
     ),
 
-    # Vision model (uvijek se skida uz LLM)
+    # TIER 3: 64GB+ — Solidan za manje sustave
+    "qwen3-30b-a3b": ModelSpec(
+        name="Qwen3-30B-A3B",
+        hf_repo="mlx-community/Qwen3-30B-A3B-4bit",
+        min_ram_gb=64,
+        size_gb=18,
+        description="MoE 30B (3B aktivno) — brz i pametan za 64GB",
+        active_params="3B active / 30B total (MoE)",
+    ),
+
+    # ═══ VISION MODELI (OCR za račune) ═══
+
+    # PRIMARNI: Qwen3-VL-8B — najnoviji, 32 jezika OCR
+    "qwen3-vl-8b": ModelSpec(
+        name="Qwen3-VL-8B-Instruct",
+        hf_repo="mlx-community/Qwen3-VL-8B-Instruct-4bit",
+        min_ram_gb=16,
+        size_gb=5,
+        description="Vision AI — OCR 32 jezika, DeepStack, low-light/blur tolerant",
+        model_type="vision",
+    ),
+
+    # FALLBACK: Qwen2.5-VL-7B — stariji ali provjeren
     "qwen2.5-vl-7b": ModelSpec(
         name="Qwen2.5-VL-7B",
         hf_repo="mlx-community/Qwen2.5-VL-7B-Instruct-4bit",
         min_ram_gb=16,
         size_gb=5,
-        description="Vision model za OCR skenova",
+        description="Vision AI fallback — OCR 19 jezika",
         model_type="vision",
     ),
 }
@@ -210,10 +222,8 @@ class ModelManager:
             return MODEL_CATALOG["qwen3-235b-a22b"]
         elif ram_gb >= 96:
             return MODEL_CATALOG["qwen2.5-72b"]
-        elif ram_gb >= 64:
-            return MODEL_CATALOG["deepseek-r1-distill-32b"]
         else:
-            return MODEL_CATALOG["qwen2.5-32b"]
+            return MODEL_CATALOG["qwen3-30b-a3b"]
 
     # ════════════════════════════════════════
     # DOWNLOAD
@@ -346,10 +356,10 @@ class ModelManager:
         else:
             results["llm"] = {"ok": True, "already_installed": True}
 
-        # Vision
-        if "qwen2.5-vl-7b" not in self._registry.get("installed", {}):
-            logger.info("First install: downloading Vision model")
-            results["vision"] = self.download_model("qwen2.5-vl-7b", callback)
+        # Vision — Qwen3-VL-8B (32 jezika OCR, DeepStack)
+        if "qwen3-vl-8b" not in self._registry.get("installed", {}):
+            logger.info("First install: downloading Vision model (Qwen3-VL-8B)")
+            results["vision"] = self.download_model("qwen3-vl-8b", callback)
         else:
             results["vision"] = {"ok": True, "already_installed": True}
 

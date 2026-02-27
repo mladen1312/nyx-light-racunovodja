@@ -1,18 +1,24 @@
 """
-Nyx Light — Vision AI Pipeline (Qwen2.5-VL-7B)
+Nyx Light — Vision AI Pipeline (Qwen3-VL-8B-Instruct)
 
 Čita skenove, PDF-ove i slike dokumenata putem multimodalnog LLM-a.
 Podržava:
-  - Računi (ulazni/izlazni)
+  - Računi (ulazni/izlazni, HR + EU + inozemni)
   - Bankovni izvodi
   - Blagajnički primci
   - Putni nalozi
   - Ugovori (samo detekcija, ne pravna analiza)
   - IOS obrasci
+  - EU e-fakture (Peppol, ZUGFeRD, FatturaPA vizualno)
 
 Dva moda rada:
   1. vLLM-MLX server (produkcija): HTTP POST s base64 slikom
   2. Direct MLX (development): Lokalni model poziv
+
+Model: Qwen3-VL-8B-Instruct (4-bit MLX, ~5GB RAM)
+  - OCR u 32 jezika (uključujući HR, DE, IT, SI, FR, EN)
+  - DeepStack arhitektura za fine-grained detalje
+  - Tolerantan na blur, tilt, low-light skenove
 """
 
 from __future__ import annotations
@@ -37,6 +43,8 @@ class DocumentType(str, Enum):
     """Tipovi dokumenata koje Vision AI prepoznaje."""
     ULAZNI_RACUN = "ulazni_racun"
     IZLAZNI_RACUN = "izlazni_racun"
+    EU_RACUN = "eu_racun"
+    INOZEMNI_RACUN = "inozemni_racun"
     BANKOVNI_IZVOD = "bankovni_izvod"
     BLAGAJNICKI_PRIMAK = "blagajnicki_primak"
     PUTNI_NALOG = "putni_nalog"

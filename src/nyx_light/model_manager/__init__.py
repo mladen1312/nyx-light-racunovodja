@@ -61,11 +61,11 @@ class ModelSpec:
 MODEL_CATALOG: Dict[str, ModelSpec] = {
     # ═══ LLM MODELI (po RAM tierovima) ═══
 
-    # TIER 1: 192GB+ — Najbolji mogući
+    # TIER 1: 256GB+ — Optimalni (Mac Studio M3 Ultra 256GB)
     "qwen3-235b-a22b": ModelSpec(
         name="Qwen3-235B-A22B",
         hf_repo="mlx-community/Qwen3-235B-A22B-4bit",
-        min_ram_gb=192,
+        min_ram_gb=256,
         size_gb=124,
         description="MoE 235B (22B aktivno) — vrhunska logika, odličan HR",
         active_params="22B active / 235B total (MoE)",
@@ -218,7 +218,7 @@ class ModelManager:
         if ram_gb == 0:
             ram_gb = self.detect_ram_gb()
 
-        if ram_gb >= 192:
+        if ram_gb >= 256:
             return MODEL_CATALOG["qwen3-235b-a22b"]
         elif ram_gb >= 96:
             return MODEL_CATALOG["qwen2.5-72b"]

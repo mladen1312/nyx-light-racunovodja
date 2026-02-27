@@ -3,7 +3,7 @@
 Nyx Light — Računovođa: Main Entry Point
 
 Pokreće FastAPI server s vllm-mlx inference engineom
-za 15 paralelnih korisnika na Mac Studio M5 Ultra.
+za 15 paralelnih korisnika na Mac Studio M3 Ultra (256 GB).
 
 Usage:
     python -m nyx_light.main

@@ -38,10 +38,11 @@ class TestLawDownloader:
         required = {
             "zakon_o_pdv", "zakon_o_racunovodstvu",
             "zakon_o_porezu_na_dobit", "zakon_o_porezu_na_dohodak",
-            "zakon_o_doprinosima",
+            "zakon_o_doprinosima", "zakon_o_fiskalizaciji",
             "pravilnik_o_pdv", "pravilnik_o_porezu_na_dobit",
             "pravilnik_o_porezu_na_dohodak", "pravilnik_o_joppd",
             "pravilnik_o_neoporezivim_primicima",
+            "pravilnik_o_fiskalizaciji",
         }
         missing = required - slugs
         assert not missing, f"Missing priority-1 laws: {missing}"
@@ -309,11 +310,17 @@ class TestModelCatalog:
         assert "qwen3-vl-8b" in MODEL_CATALOG
         assert "qwen3-30b-a3b" in MODEL_CATALOG
 
-    def test_192gb_recommends_qwen3_235b(self):
+    def test_256gb_recommends_qwen3_235b(self):
+        from nyx_light.model_manager import ModelManager
+        mgr = ModelManager()
+        rec = mgr.recommend_model(ram_gb=256)
+        assert "235" in rec.name
+
+    def test_192gb_recommends_72b(self):
         from nyx_light.model_manager import ModelManager
         mgr = ModelManager()
         rec = mgr.recommend_model(ram_gb=192)
-        assert "235" in rec.name
+        assert "72B" in rec.name
 
     def test_96gb_recommends_72b(self):
         from nyx_light.model_manager import ModelManager

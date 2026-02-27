@@ -2,27 +2,34 @@
 Nyx Light — Auto-Download Zakona RH za RAG bazu
 
 Dohvaća, parsira i ingestira zakone u vektorsku bazu.
+Ažurirano: veljača 2026.
 
-Zakoni koji se dohvaćaju:
-  1. Zakon o računovodstvu (NN 78/15, 120/16, 116/18, 42/20, 47/20, 114/22)
-  2. Zakon o PDV-u (NN 73/13 + izmjene do 2025)
-  3. Zakon o porezu na dobit (NN 177/04 + izmjene)
-  4. Zakon o porezu na dohodak (NN 115/16 + izmjene)
-  5. Zakon o doprinosima (NN 84/08 + izmjene)
-  6. Zakon o fiskalizaciji (NN 133/12 + izmjene)
-  7. Opći porezni zakon (OPZ) (NN 115/16 + izmjene)
-  8. Zakon o trgovačkim društvima (ZTD) — odabrani članci
-  9. HSFI standardi (odabrani)
-  10. Pravilnik o PDV-u
-  11. Pravilnik o porezu na dobit
-  12. Pravilnik o porezu na dohodak
-  13. Zakon o provedbi ovrhe (OPZ-STAT)
-  14. Mišljenja Porezne uprave (batch download)
+Zakoni koji se dohvaćaju (30+ izvora):
+  1. Zakon o PDV-u (NN 73/13 + do NN 151/25, 16 izmjena)
+  2. Zakon o računovodstvu (NN 78/15 + do NN 18/25)
+  3. Zakon o porezu na dobit (NN 177/04 + do NN 151/25)
+  4. Zakon o porezu na dohodak (NN 115/16 + do NN 152/24)
+  5. Zakon o doprinosima (NN 84/08 + do NN 114/23)
+  6. Zakon o fiskalizaciji (NN 89/25) — NOVI od 01.09.2025!
+  7. Pravilnik o fiskalizaciji (NN 153/25) — NOVI od 01.01.2026!
+  8. Opći porezni zakon (NN 115/16 + do NN 151/25)
+  9. Zakon o trgovačkim društvima (ZTD)
+  10. Zakon o radu (NN 93/14 + do NN 64/23)
+  11. HSFI standardi (NN 86/15 + izmjene)
+  12. Pravilnik o PDV-u (NN 79/13 + do NN 16/25)
+  13. Pravilnik o porezu na dobit (NN 95/05 + do NN 16/25)
+  14. Pravilnik o porezu na dohodak (NN 10/17 + do NN 43/23)
+  15. Pravilnik o JOPPD (NN 32/15 + izmjene)
+  16. Pravilnik o neoporezivim primicima (NN 1/23)
+  17. Uredba o minimalnoj plaći za 2026. (NN 132/25)
+  18. Naredba o osnovicama za doprinose za 2026. (NN 150/25)
+  19. Mišljenja Porezne uprave (batch download)
+  + ostali pravilnici i standardi
 
 Izvori:
   - narodne-novine.nn.hr (primarni)
-  - zakon.hr (sekundarni)
-  - porezna-uprava.gov.hr (mišljenja)
+  - zakon.hr (sekundarni, pročišćeni tekstovi)
+  - porezna-uprava.gov.hr (mišljenja, naredbe)
 
 Auto-update:
   - Provjerava NN za nove izmjene jednom tjedno
@@ -62,17 +69,26 @@ class LawSource:
 # ═══════════════════════════════════════════════════
 
 LAW_CATALOG: List[LawSource] = [
-    # ── PRIORITET 1: Kritični zakoni ──
+    # ══════════════════════════════════════════════════
+    # PRIORITET 1: Kritični zakoni (ažurirano za 2026.)
+    # Izvor: zakon.hr, narodne-novine.nn.hr, porezna-uprava.gov.hr
+    # Zadnja provjera: 27. veljače 2026.
+    # ══════════════════════════════════════════════════
     LawSource(
         slug="zakon_o_pdv",
         name="Zakon o porezu na dodanu vrijednost",
         nn_primary="73/13",
         nn_amendments=["99/13", "148/13", "153/13", "143/14", "115/16",
                         "106/18", "121/19", "138/20", "39/22", "113/22",
-                        "33/23", "35/23", "114/23", "9/25"],
+                        "33/23", "114/23", "35/24", "152/24", "52/25",
+                        "151/25"],
         effective_from="2013-07-01",
         category="zakon",
         priority=1,
+        # NN 152/24: prag PDV 60.000 EUR, povrat bez uzajamnosti (01.01.2025)
+        # NN 52/25: produljenje 5% stopa plin/drvo do 31.03.2026 (30.03.2025)
+        # NN 151/25: rok PDV do zadnjeg dana mjeseca, ukidanje U-RA/PPO,
+        #   eRačun bez suglasnosti, promjena oporezivanja (01.01.2026)
     ),
     LawSource(
         slug="zakon_o_racunovodstvu",
@@ -90,21 +106,25 @@ LAW_CATALOG: List[LawSource] = [
         nn_primary="177/04",
         nn_amendments=["90/05", "57/06", "146/08", "80/10", "22/12",
                         "148/13", "143/14", "50/16", "115/16", "106/18",
-                        "121/19", "32/20", "138/20", "114/22", "113/23",
-                        "9/25"],
+                        "121/19", "32/20", "138/20", "114/22", "114/23",
+                        "151/25"],
         effective_from="2005-01-01",
         category="zakon",
         priority=1,
+        # NN 151/25: donacije zdravstvo, transferne cijene metode,
+        #   prethodni sporazum TP, uračunavanje poreza inozemstvo,
+        #   nova pravila porezne prijave (01.01.2026)
     ),
     LawSource(
         slug="zakon_o_porezu_na_dohodak",
         name="Zakon o porezu na dohodak",
         nn_primary="115/16",
         nn_amendments=["106/18", "121/19", "32/20", "138/20", "151/22",
-                        "114/23", "9/25"],
+                        "114/23", "152/24"],
         effective_from="2017-01-01",
         category="zakon",
         priority=1,
+        # NN 152/24: stope poreza JLS, osobni odbitak usklađen (01.01.2025)
     ),
     LawSource(
         slug="zakon_o_doprinosima",
@@ -118,24 +138,110 @@ LAW_CATALOG: List[LawSource] = [
         priority=1,
     ),
 
-    # ── PRIORITET 2: Važni zakoni ──
+    # ══════════════════════════════════════════════════
+    # PRIORITET 1: Kritični pravilnici
+    # ══════════════════════════════════════════════════
+    LawSource(
+        slug="pravilnik_o_pdv",
+        name="Pravilnik o porezu na dodanu vrijednost",
+        nn_primary="79/13",
+        nn_amendments=["85/13", "160/13", "35/14", "157/14", "130/15",
+                        "1/17", "41/17", "128/17", "1/19", "1/20",
+                        "1/21", "73/21", "41/22", "133/22", "43/23",
+                        "16/25"],
+        effective_from="2013-07-01",
+        category="pravilnik",
+        priority=1,
+        # NN 16/25: usklađen s NN 152/24 (01.01.2025)
+        # Očekuje se nova izmjena usklađena s NN 151/25 (2026)
+    ),
+    LawSource(
+        slug="pravilnik_o_porezu_na_dobit",
+        name="Pravilnik o porezu na dobit",
+        nn_primary="95/05",
+        nn_amendments=["133/07", "156/08", "146/09", "123/10", "137/11",
+                        "61/12", "146/12", "160/13", "12/14", "157/14",
+                        "137/15", "1/17", "2/18", "1/19", "1/20",
+                        "59/20", "1/21", "156/22", "156/23", "16/25"],
+        effective_from="2005-01-01",
+        category="pravilnik",
+        priority=1,
+    ),
+    LawSource(
+        slug="pravilnik_o_porezu_na_dohodak",
+        name="Pravilnik o porezu na dohodak",
+        nn_primary="10/17",
+        nn_amendments=["128/17", "106/18", "1/19", "80/19", "1/20",
+                        "74/20", "1/21", "102/22", "112/22", "156/22",
+                        "1/23", "43/23"],
+        effective_from="2017-01-01",
+        category="pravilnik",
+        priority=1,
+    ),
+    LawSource(
+        slug="pravilnik_o_joppd",
+        name="Pravilnik o sadržaju obračuna plaće i JOPPD",
+        nn_primary="32/15",
+        nn_amendments=["102/15", "79/16", "1/17", "35/17", "93/17",
+                        "1/19", "1/20", "1/21"],
+        effective_from="2015-01-01",
+        category="pravilnik",
+        priority=1,
+    ),
+    LawSource(
+        slug="pravilnik_o_neoporezivim_primicima",
+        name="Pravilnik o neoporezivim primicima",
+        nn_primary="1/23",
+        nn_amendments=["43/23"],
+        effective_from="2023-01-01",
+        category="pravilnik",
+        priority=1,
+    ),
+
+    # ══════════════════════════════════════════════════
+    # PRIORITET 1: Fiskalizacija 2.0 + eRačun (NOVO 2025/2026!)
+    # ══════════════════════════════════════════════════
     LawSource(
         slug="zakon_o_fiskalizaciji",
-        name="Zakon o fiskalizaciji u prometu gotovinom",
-        nn_primary="133/12",
-        nn_amendments=["115/16", "106/18", "121/19", "138/20"],
-        effective_from="2013-01-01",
+        name="Zakon o fiskalizaciji",
+        nn_primary="89/25",
+        nn_amendments=[],
+        effective_from="2025-09-01",
         category="zakon",
-        priority=2,
+        priority=1,
+        # POTPUNO NOVI ZAKON od 01.09.2025 (zamjenjuje stari NN 133/12)!
+        # - Fiskalizacija svih računa (gotovina + transakcijski + kartice)
+        # - eRačun B2B obvezan od 01.01.2026 za PDV obveznike
+        # - eRačun B2B obvezan od 01.01.2027 za ostale
+        # - KPD klasifikacija roba/usluga
+        # - eIzvještavanje
+        # - MIKROeRAČUN besplatna PU aplikacija od 01.01.2027
     ),
+    LawSource(
+        slug="pravilnik_o_fiskalizaciji",
+        name="Pravilnik o fiskalizaciji računa u krajnjoj potrošnji",
+        nn_primary="153/25",
+        nn_amendments=[],
+        effective_from="2026-01-01",
+        category="pravilnik",
+        priority=1,
+        # Novi pravilnik uz novi Zakon o fiskalizaciji
+    ),
+
+    # ══════════════════════════════════════════════════
+    # PRIORITET 2: Važni zakoni
+    # ══════════════════════════════════════════════════
     LawSource(
         slug="opci_porezni_zakon",
         name="Opći porezni zakon",
         nn_primary="115/16",
-        nn_amendments=["106/18", "121/19", "32/20", "42/20"],
+        nn_amendments=["106/18", "121/19", "32/20", "42/20", "114/23",
+                        "152/24", "151/25"],
         effective_from="2017-01-01",
         category="zakon",
         priority=2,
+        # NN 151/25: porezna tajna, izuzeća izdavanja računa,
+        #   elektronička obrada, ukidanje OPZ-STAT-1, eRačun (01.01.2026)
     ),
     LawSource(
         slug="zakon_o_radu",
@@ -146,42 +252,6 @@ LAW_CATALOG: List[LawSource] = [
         category="zakon",
         priority=2,
     ),
-
-    # ── PRAVILNICI ──
-    LawSource(
-        slug="pravilnik_o_pdv",
-        name="Pravilnik o porezu na dodanu vrijednost",
-        nn_primary="79/13",
-        nn_amendments=["85/13", "160/13", "35/14", "157/14", "130/15",
-                        "1/17", "41/17", "128/17", "1/19", "1/20",
-                        "1/21", "73/21", "41/22", "133/22", "43/23"],
-        effective_from="2013-07-01",
-        category="pravilnik",
-        priority=2,
-    ),
-    LawSource(
-        slug="pravilnik_o_porezu_na_dobit",
-        name="Pravilnik o porezu na dobit",
-        nn_primary="95/05",
-        nn_amendments=["133/07", "156/08", "146/09", "123/10", "137/11",
-                        "61/12", "146/12", "160/13", "12/14", "157/14",
-                        "137/15", "1/17", "2/18", "1/19", "1/20",
-                        "59/20", "1/21", "152/22", "43/23"],
-        effective_from="2005-01-01",
-        category="pravilnik",
-        priority=2,
-    ),
-    LawSource(
-        slug="pravilnik_o_joppd",
-        name="Pravilnik o sadržaju obračuna plaće i JOPPD",
-        nn_primary="32/15",
-        nn_amendments=["102/15", "79/16", "1/17", "35/17", "93/17",
-                        "1/19", "1/20", "1/21"],
-        effective_from="2015-01-01",
-        category="pravilnik",
-        priority=2,
-    ),
-
     LawSource(
         slug="zakon_o_trgovackim_drustvima",
         name="Zakon o trgovačkim društvima",
@@ -212,52 +282,20 @@ LAW_CATALOG: List[LawSource] = [
         category="zakon",
         priority=3,
     ),
+    LawSource(
+        slug="zakon_o_minimalnom_globalnom_porezu",
+        name="Zakon o minimalnom globalnom porezu na dobit",
+        nn_primary="155/23",
+        nn_amendments=["151/25"],
+        effective_from="2024-01-01",
+        category="zakon",
+        priority=3,
+        # NN 151/25: izmjene područja primjene, dopunski porez (23.12.2025)
+    ),
 
-    # ── PRAVILNICI ──
-    LawSource(
-        slug="pravilnik_o_pdv",
-        name="Pravilnik o porezu na dodanu vrijednost",
-        nn_primary="79/13",
-        nn_amendments=["85/13", "160/13", "35/14", "157/14", "130/15",
-                        "1/17", "41/17", "128/17", "1/19", "1/20",
-                        "1/21", "73/21", "41/22", "133/22", "43/23"],
-        effective_from="2013-07-01",
-        category="pravilnik",
-        priority=1,
-    ),
-    LawSource(
-        slug="pravilnik_o_porezu_na_dobit",
-        name="Pravilnik o porezu na dobit",
-        nn_primary="95/05",
-        nn_amendments=["133/07", "156/08", "146/09", "123/10", "137/11",
-                        "61/12", "146/12", "160/13", "12/14", "157/14",
-                        "137/15", "1/17", "2/18", "1/19", "1/20",
-                        "59/20", "1/21", "152/22", "43/23"],
-        effective_from="2005-01-01",
-        category="pravilnik",
-        priority=1,
-    ),
-    LawSource(
-        slug="pravilnik_o_porezu_na_dohodak",
-        name="Pravilnik o porezu na dohodak",
-        nn_primary="10/17",
-        nn_amendments=["128/17", "106/18", "1/19", "80/19", "1/20",
-                        "74/20", "1/21", "102/22", "112/22", "156/22",
-                        "1/23", "43/23"],
-        effective_from="2017-01-01",
-        category="pravilnik",
-        priority=1,
-    ),
-    LawSource(
-        slug="pravilnik_o_joppd",
-        name="Pravilnik o sadržaju obračuna plaće, JOPPD",
-        nn_primary="32/15",
-        nn_amendments=["102/15", "79/16", "1/17", "35/17", "93/17",
-                        "1/19", "1/20", "1/21"],
-        effective_from="2015-01-01",
-        category="pravilnik",
-        priority=1,
-    ),
+    # ══════════════════════════════════════════════════
+    # PRIORITET 2: Ostali pravilnici
+    # ══════════════════════════════════════════════════
     LawSource(
         slug="pravilnik_o_amortizaciji",
         name="Pravilnik o amortizaciji",
@@ -275,15 +313,6 @@ LAW_CATALOG: List[LawSource] = [
         effective_from="2016-01-01",
         category="pravilnik",
         priority=2,
-    ),
-    LawSource(
-        slug="pravilnik_o_neoporezivim_primicima",
-        name="Pravilnik o neoporezivim primicima",
-        nn_primary="1/23",
-        nn_amendments=["43/23"],
-        effective_from="2023-01-01",
-        category="pravilnik",
-        priority=1,
     ),
     LawSource(
         slug="pravilnik_o_doprinosima",
@@ -305,7 +334,9 @@ LAW_CATALOG: List[LawSource] = [
         priority=3,
     ),
 
-    # ── STANDARDI ──
+    # ══════════════════════════════════════════════════
+    # STANDARDI
+    # ══════════════════════════════════════════════════
     LawSource(
         slug="hsfi",
         name="Hrvatski standardi financijskog izvještavanja",
@@ -325,15 +356,27 @@ LAW_CATALOG: List[LawSource] = [
         priority=2,
     ),
 
-    # ── NAREDBE I ODLUKE ──
+    # ══════════════════════════════════════════════════
+    # NAREDBE I ODLUKE (godišnje ažuriranje)
+    # ══════════════════════════════════════════════════
     LawSource(
         slug="minimalna_placa",
-        name="Uredba o visini minimalne plaće",
-        nn_primary="156/23",
+        name="Uredba o visini minimalne plaće za 2026.",
+        nn_primary="132/25",
         nn_amendments=[],
-        effective_from="2024-01-01",
+        effective_from="2026-01-01",
         category="uredba",
         priority=2,
+    ),
+    LawSource(
+        slug="naredba_doprinosi_2026",
+        name="Naredba o iznosima osnovica za obračun doprinosa za 2026.",
+        nn_primary="150/25",
+        nn_amendments=[],
+        effective_from="2026-01-01",
+        category="naredba",
+        priority=2,
+        # Prosječna plaća 1.993,00 EUR; najniža osnov. 757,34 EUR
     ),
     LawSource(
         slug="osobni_odbitak",

@@ -27,7 +27,7 @@ def main():
             chip = subprocess.check_output(["sysctl","-n","machdep.cpu.brand_string"], text=True).strip()
             mem = int(subprocess.check_output(["sysctl","-n","hw.memsize"], text=True).strip()) // (1024**3)
             p("✅" if "M" in chip else "⚠️", f"Čip: {chip}")
-            p("✅" if mem >= 192 else "⚠️", f"RAM: {mem} GB {'(ok)' if mem >= 192 else '(preporučeno 192 GB)'}")
+            p("✅" if mem >= 256 else "⚠️", f"RAM: {mem} GB {'(ok za 235B)' if mem >= 256 else '(256 GB preporučeno za Qwen3-235B)'}")
         except: p("⚠️", "Ne mogu detektirati hardver")
         try:
             wired = subprocess.check_output(["sysctl","-n","iogpu.wired_limit_mb"], text=True).strip()

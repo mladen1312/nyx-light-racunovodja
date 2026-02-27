@@ -3,12 +3,12 @@
 # 🌙 Nyx Light — Računovođa :: ONE-CLICK INSTALLER
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Ovaj skript instalira SVE potrebno na Mac Studio M5 Ultra:
+# Ovaj skript instalira SVE potrebno na Mac Studio M3 Ultra (256 GB):
 #   1. Homebrew (ako nedostaje)
 #   2. Python 3.12+ i alate
 #   3. Python dependencies (FastAPI, Qdrant, Neo4j, itd.)
 #   4. LLM Inference Engine (vllm-mlx ili mlx-lm)
-#   5. AI Model (Qwen3-235B-A22B kvantiziran za 192GB RAM)
+#   5. AI Model (Qwen3-235B-A22B kvantiziran za 256GB RAM)
 #   6. Vision model (Qwen2.5-VL-7B)
 #   7. Neo4j (Knowledge Graph)
 #   8. Qdrant (Vector DB za RAG)
@@ -45,7 +45,7 @@ MODEL_DIR="${DATA_DIR}/models"
 VENV_DIR="${PROJECT_DIR}/.venv"
 
 # ── LLM Model konfiguracija ──
-# Primarni model: Qwen3-235B MoE (samo ~22B aktivno, stane u 192GB)
+# Primarni model: Qwen3-235B MoE (samo ~22B aktivno, stane u 256GB M3 Ultra)
 PRIMARY_MODEL="Qwen/Qwen3-235B-A22B-GGUF"
 PRIMARY_MODEL_FILE="qwen3-235b-a22b-q4_k_m.gguf"
 # Alternativa za manje RAM-a:
@@ -96,9 +96,9 @@ check_macos() {
             ok "Apple Silicon detektiran ($(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo 'M-series'))"
             # RAM check
             RAM_GB=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
-            if [[ $RAM_GB -ge 192 ]]; then
+            if [[ $RAM_GB -ge 256 ]]; then
                 ok "RAM: ${RAM_GB}GB — dovoljno za Qwen3-235B"
-            elif [[ $RAM_GB -ge 96 ]]; then
+            elif [[ $RAM_GB -ge 64 ]]; then
                 warn "RAM: ${RAM_GB}GB — koristit ćemo Qwen2.5-72B umjesto 235B"
                 PRIMARY_MODEL="${ALT_MODEL}"
                 PRIMARY_MODEL_FILE="${ALT_MODEL_FILE}"

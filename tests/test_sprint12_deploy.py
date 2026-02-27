@@ -529,17 +529,25 @@ class TestModelCatalog:
     def test_primary_model_specs(self):
         from nyx_light.model_manager import MODEL_CATALOG
         primary = MODEL_CATALOG["qwen3-235b-a22b"]
-        assert primary.min_ram_gb == 192
+        assert primary.min_ram_gb == 256
         assert primary.size_gb == 124
         assert "MoE" in primary.description or "22B" in primary.description
 
-    def test_recommend_192gb(self):
+    def test_recommend_256gb(self):
+        from nyx_light.model_manager import ModelManager
+        mgr = ModelManager.__new__(ModelManager)
+        mgr._registry = {}
+        mgr._models_dir = Path("/tmp/test_models")
+        rec = mgr.recommend_model(ram_gb=256)
+        assert "235B" in rec.name or "qwen3" in rec.name.lower()
+
+    def test_recommend_192gb_gets_72b(self):
         from nyx_light.model_manager import ModelManager
         mgr = ModelManager.__new__(ModelManager)
         mgr._registry = {}
         mgr._models_dir = Path("/tmp/test_models")
         rec = mgr.recommend_model(ram_gb=192)
-        assert "235B" in rec.name or "qwen3" in rec.name.lower()
+        assert "72B" in rec.name
 
     def test_recommend_96gb(self):
         from nyx_light.model_manager import ModelManager

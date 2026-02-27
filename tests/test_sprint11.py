@@ -144,8 +144,9 @@ class TestModelManager:
         assert ram >= 0
 
     def test_recommend_model_192(self):
+        # 192GB nije Apple konfiguracija, ali ako bi postojala → 72B (235B treba 256GB)
         spec = self.mgr.recommend_model(192)
-        assert "235" in spec.name or "72" in spec.name
+        assert "72" in spec.name
 
     def test_recommend_model_96(self):
         spec = self.mgr.recommend_model(96)

@@ -1,7 +1,7 @@
 """
 Nyx Light — System Monitoring
 
-Prati zdravlje sustava na Mac Studio M5 Ultra:
+Prati zdravlje sustava na Mac Studio M3 Ultra (256 GB):
 - Unified Memory (iskorištenost, wired, swap)
 - vLLM-MLX server status
 - Qdrant/Neo4j status
@@ -24,7 +24,7 @@ logger = logging.getLogger("nyx_light.monitor")
 
 
 class SystemMonitor:
-    """Monitoring za Mac Studio M5 Ultra."""
+    """Monitoring za Mac Studio M3 Ultra (256 GB)."""
     
     def __init__(self):
         self._inference_times: List[float] = []

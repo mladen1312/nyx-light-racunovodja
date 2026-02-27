@@ -1,7 +1,7 @@
 """
 Nyx Light — Računovođa: Konfiguracija sustava
 
-Sva podešavanja za Mac Studio M5 Ultra (192 GB).
+Sva podešavanja za Mac Studio M3 Ultra (256 GB unified memory).
 """
 
 from dataclasses import dataclass, field
@@ -14,8 +14,8 @@ class NyxLightConfig:
     """Master konfiguracija sustava."""
 
     # ── Hardware ──
-    total_memory_gb: float = 192.0
-    wired_memory_pct: float = 0.83  # 160 GB wired za 192 GB Mac Studio
+    total_memory_gb: float = 256.0
+    wired_memory_pct: float = 0.85  # ~218 GB wired za 256 GB Mac Studio M3 Ultra
     max_concurrent_users: int = 15
 
     # ── AI Modeli ──

@@ -40,14 +40,11 @@ echo "  Čip: $CHIP"
 echo "  Memorija: ${MEM_GB} GB"
 
 if [ "$MEM_GB" -ge 256 ]; then
-    echo "  ✅ 256 GB — optimalno za Qwen3-235B-A22B MoE"
+    echo "  ✅ 256+ GB (M3 Ultra) — optimalno za Qwen3-235B-A22B MoE"
     MODEL_SIZE="235B"
-elif [ "$MEM_GB" -ge 192 ]; then
-    echo "  ⚠️  192 GB — Qwen3-235B-A22B MoE može raditi uz agresivniji swap"
-    MODEL_SIZE="235B"
-elif [ "$MEM_GB" -ge 128 ]; then
-    echo "  ⚠️  128 GB — koristim Qwen3-30B-A3B (manji MoE fallback)"
-    MODEL_SIZE="30B"
+elif [ "$MEM_GB" -ge 96 ]; then
+    echo "  ⚠️  ${MEM_GB} GB — koristim Qwen2.5-72B-Instruct (256GB potrebno za 235B)"
+    MODEL_SIZE="72B"
 elif [ "$MEM_GB" -ge 64 ]; then
     echo "  ⚠️  64 GB — koristim Qwen3-30B-A3B u reduciranom modu"
     MODEL_SIZE="30B"

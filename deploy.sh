@@ -4,7 +4,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 #
 # JEDINI FAJL KOJI TREBA POKRENUTI.
-# Instalira SVE na Mac Studio M5 Ultra (192GB):
+# Instalira SVE na Mac Studio M3 Ultra (256GB):
 #
 #   ✅ Faza 1: Provjera sustava (RAM, disk, chip)
 #   ✅ Faza 2: Homebrew + Python + Git + Java
@@ -49,7 +49,7 @@ VENV="${PROJECT_DIR}/.venv"
 LOG="${DATA}/deploy.log"
 
 # ═══ MODELI ═══
-PRIMARY_192="mlx-community/Qwen3-235B-A22B-4bit"        # 192GB+ → ~124GB
+PRIMARY_256="mlx-community/Qwen3-235B-A22B-4bit"        # 256GB+ → ~124GB
 PRIMARY_96="mlx-community/Qwen2.5-72B-Instruct-4bit"    # 96GB+  → ~42GB
 PRIMARY_64="mlx-community/Qwen3-30B-A3B-4bit"           # 64GB+  → ~18GB
 VISION="mlx-community/Qwen3-VL-8B-Instruct-4bit"        # Vision → ~5GB
@@ -128,9 +128,9 @@ if ! done? system || [[ "$RESUME" != true ]]; then
   fi
 
   ok "Čip: $CHIP"
-  if (( RAM_GB >= 192 )); then
+  if (( RAM_GB >= 256 )); then
     ok "RAM: ${RAM_GB}GB — Qwen3-235B-A22B (MoE, optimalno)"
-    SELECTED="$PRIMARY_192"; MODEL_NAME="Qwen3-235B-A22B"
+    SELECTED="$PRIMARY_256"; MODEL_NAME="Qwen3-235B-A22B"
   elif (( RAM_GB >= 96 )); then
     warn "RAM: ${RAM_GB}GB — Qwen2.5-72B (fallback)"
     SELECTED="$PRIMARY_96"; MODEL_NAME="Qwen2.5-72B"
@@ -240,7 +240,7 @@ if ! done? models || [[ "$RESUME" != true ]]; then
   info "╔═══════════════════════════════════════════════════╗"
   info "║  LLM:    ${MODEL_NAME:-Qwen3-235B-A22B}"
   info "║  Vision: Qwen3-VL-8B-Instruct (32-lang OCR)"
-  info "║  Repo:   ${SELECTED:-$PRIMARY_192}"
+  info "║  Repo:   ${SELECTED:-$PRIMARY_256}"
   info "╚═══════════════════════════════════════════════════╝"
   echo ""
 
@@ -248,7 +248,7 @@ if ! done? models || [[ "$RESUME" != true ]]; then
   python3 -c "
 from huggingface_hub import snapshot_download
 print('Downloading ${MODEL_NAME:-LLM}...')
-snapshot_download('${SELECTED:-$PRIMARY_192}', local_dir='${MODELS}/primary', resume_download=True)
+snapshot_download('${SELECTED:-$PRIMARY_256}', local_dir='${MODELS}/primary', resume_download=True)
 print('✅ LLM downloaded')
 "
   ok "Primarni: ${MODEL_NAME:-Qwen3-235B-A22B}"
@@ -265,7 +265,7 @@ print('✅ Vision downloaded')
   # Registry
   cat > "$MODELS/registry.json" << EOF
 {
-  "primary": {"name":"${MODEL_NAME:-Qwen3-235B-A22B}","repo":"${SELECTED:-$PRIMARY_192}","path":"${MODELS}/primary","date":"$(date -Iseconds)"},
+  "primary": {"name":"${MODEL_NAME:-Qwen3-235B-A22B}","repo":"${SELECTED:-$PRIMARY_256}","path":"${MODELS}/primary","date":"$(date -Iseconds)"},
   "vision": {"name":"Qwen3-VL-8B-Instruct","repo":"${VISION}","path":"${MODELS}/vision","date":"$(date -Iseconds)"},
   "ram_gb": ${RAM_GB:-0}
 }

@@ -1,0 +1,18 @@
+{
+  "remote.SSH.remotePlatform": {
+    "nyx-studio": "macOS"
+  },
+  "remote.SSH.defaultExtensions": [
+    "ms-python.python",
+    "ms-python.pylint",
+    "charliermarsh.ruff",
+    "ms-toolsai.jupyter"
+  ],
+  "python.defaultInterpreterPath": "/Users/nyx/nyx-light-racunovodja/.venv/bin/python",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": [
+    "tests/"
+  ],
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000
+}

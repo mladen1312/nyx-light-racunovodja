@@ -1,0 +1,10 @@
+# Nyx Light Mac Studio
+Host nyx-studio
+    HostName nyx-studio
+    User nyx
+    Port 22
+    IdentityFile ~/.ssh/nyx_ed25519
+    ForwardAgent yes
+    # Port forwarding za API i MLX
+    LocalForward 8420 127.0.0.1:8420
+    LocalForward 8422 127.0.0.1:8422

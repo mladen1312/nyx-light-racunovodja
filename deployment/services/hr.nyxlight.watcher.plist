@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>hr.nyxlight.watcher</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/nyx/nyx-light-racunovodja/.venv/bin/python</string>
+        <string>-c</string>
+        <string>from nyx_light.deployment import start_watcher; start_watcher()</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/nyx/nyx-light-racunovodja</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/nyx/nyx-data/logs/watcher.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/nyx/nyx-data/logs/watcher.error.log</string>
+</dict>
+</plist>

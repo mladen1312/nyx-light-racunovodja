@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>hr.nyxlight.mlx</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/nyx/nyx-light-racunovodja/.venv/bin/python</string>
+        <string>-m</string>
+        <string>mlx_lm.server</string>
+        <string>--model</string>
+        <string>/Users/nyx/models/Qwen3-235B-A22B</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8422</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/nyx/nyx-light-racunovodja</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>MLX_METAL_DEVICE</key>
+        <string>0</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/nyx/nyx-data/logs/mlx.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/nyx/nyx-data/logs/mlx.error.log</string>
+</dict>
+</plist>

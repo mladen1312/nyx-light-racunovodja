@@ -280,6 +280,33 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
+### Mac Studio Deployment
+
+Za produkcijski deployment koristite `deploy.sh`, `start.sh` ili `deployment/scripts/setup_mac_studio.sh`:
+
+```bash
+# Inicijalni setup
+bash deployment/scripts/setup_mac_studio.sh
+
+# Live editing sesija (hot-reload + watcher)
+bash deployment/scripts/live_edit.sh
+
+# Deploy update (git pull + test + reload)
+bash deployment/scripts/deploy_update.sh
+```
+
+### Zakonska baza (RAG)
+
+Sustav pokriva sljedeće zakone RH:
+- Zakon o računovodstvu (ZOR)
+- Zakon o porezu na dodanu vrijednost (ZPDV)
+- Zakon o porezu na dobit
+- Zakon o porezu na dohodak
+- Opći porezni zakon
+- Zakon o fiskalizaciji u prometu gotovinom
+- Pravilnik o strukturi i sadržaju GFI
+- Mišljenja Porezne uprave
+
 ---
 
 ## 🔧 Konfiguracija
@@ -288,10 +315,13 @@ pytest tests/ -v
 
 | Profil | RAM | Korisnika | Preporučeni LLM |
 |---|---|---|---|
+| mac_studio_m5_ultra_512 | 512 GB | 40 | Qwen3-235B FP16 + Qwen2.5-VL-72B FP16 |
+| mac_studio_m5_ultra_256 | 256 GB | 25 | Qwen3-235B-A22B MoE + Qwen2.5-VL-72B |
 | mac_studio_m4_ultra_192 | 192 GB | 20 | DeepSeek-R1-70B-Q4 |
 | mac_studio_m4_ultra_128 | 128 GB | 12 | Qwen2.5-72B-Q3 |
 | mac_studio_m4_96 | 96 GB | 8 | Qwen2.5-32B-Q6 |
 | mac_mini_m4_64 | 64 GB | 5 | Qwen2.5-14B |
+| mac_mini_m4_pro_36 | 36 GB | 2 | Phi-4-14B-Q4 |
 
 ### Produktivnost s AI
 

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>hr.nyxlight.api</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/nyx/nyx-light-racunovodja/.venv/bin/python</string>
+        <string>-m</string>
+        <string>uvicorn</string>
+        <string>nyx_light.api.main:app</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>8420</string>
+        <string>--workers</string>
+        <string>4</string>
+        <string>--reload</string>
+        <string>--reload-dir</string>
+        <string>/Users/nyx/nyx-light-racunovodja/src</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/nyx/nyx-light-racunovodja</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>/Users/nyx/nyx-light-racunovodja/src</string>
+        <key>NYX_ENV</key>
+        <string>production</string>
+        <key>NYX_DATA_DIR</key>
+        <string>/Users/nyx/nyx-data</string>
+        <key>NYX_MODELS_DIR</key>
+        <string>/Users/nyx/models</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/nyx/nyx-data/logs/api.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/nyx/nyx-data/logs/api.error.log</string>
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+</dict>
+</plist>

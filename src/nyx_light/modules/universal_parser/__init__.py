@@ -872,3 +872,485 @@ EU_COUNTRY_CONFIGS = {
 def get_country_config(country: str = "HR") -> Dict[str, Any]:
     """Dohvati konfiguraciju za državu."""
     return EU_COUNTRY_CONFIGS.get(country.upper(), EU_COUNTRY_CONFIGS["HR"])
+
+
+# ═══════════════════════════════════════════════
+# INVOICE TYPE CLASSIFICATION (HR specifično)
+# ═══════════════════════════════════════════════
+
+class InvoiceTypeHR(str, Enum):
+    """Tipovi računa prema hrvatskim propisima."""
+    STANDARDNI = "380"         # Standardni račun
+    PREDUJAM = "386"           # Račun za predujam (avans)
+    KOREKTURNI = "384"         # Korekturni (odobrenje/terećenje)
+    STORNO = "381"             # Storno račun (credit note)
+    SAMOFAKTURA = "389"        # Samofaktura
+    KONACNI = "380-final"      # Konačni račun (nakon predujma)
+    INTERNA_OBRACUN = "INT"    # Interni obračun (reverse charge)
+    EU_STJECANJE = "EU-ACQ"    # Intra-EU stjecanje
+    UVOZ = "IMPORT"            # Uvozni račun (carinska deklaracija)
+
+
+INVOICE_TYPE_KEYWORDS = {
+    InvoiceTypeHR.STORNO: [
+        "storno", "credit note", "odobrenje", "knjižno odobrenje",
+        "dobropis", "credit memo"
+    ],
+    InvoiceTypeHR.KOREKTURNI: [
+        "korekcij", "ispravak", "korekturni", "debit note",
+        "knjižno zaduženje", "terećenje"
+    ],
+    InvoiceTypeHR.PREDUJAM: [
+        "predujam", "avans", "advance", "prepayment", "akontacij"
+    ],
+    InvoiceTypeHR.KONACNI: [
+        "konačni račun", "final invoice", "završni račun"
+    ],
+    InvoiceTypeHR.SAMOFAKTURA: [
+        "samofaktura", "self-billing", "self billing"
+    ],
+    InvoiceTypeHR.INTERNA_OBRACUN: [
+        "reverse charge", "prijenos porezne obveze",
+        "tuzemni prijenos", "čl. 75"
+    ],
+    InvoiceTypeHR.EU_STJECANJE: [
+        "intra-community", "eu stjecanje", "intracommunity",
+        "stjecanje iz eu"
+    ],
+}
+
+
+def classify_invoice_type(text: str, xml_type_code: str = "") -> InvoiceTypeHR:
+    """
+    Klasificiraj tip računa na temelju teksta i/ili XML koda.
+    Prioritet: XML kod > ključne riječi u tekstu.
+    """
+    # Tier 1: Eksplicitni XML type code
+    xml_map = {
+        "380": InvoiceTypeHR.STANDARDNI,
+        "381": InvoiceTypeHR.STORNO,
+        "383": InvoiceTypeHR.KOREKTURNI,
+        "384": InvoiceTypeHR.KOREKTURNI,
+        "386": InvoiceTypeHR.PREDUJAM,
+        "389": InvoiceTypeHR.SAMOFAKTURA,
+    }
+    if xml_type_code in xml_map:
+        return xml_map[xml_type_code]
+
+    # Tier 2: Keyword detection
+    text_lower = text.lower()
+    for inv_type, keywords in INVOICE_TYPE_KEYWORDS.items():
+        if any(kw in text_lower for kw in keywords):
+            return inv_type
+
+    return InvoiceTypeHR.STANDARDNI
+
+
+# ═══════════════════════════════════════════════
+# BATCH PROCESSING
+# ═══════════════════════════════════════════════
+
+@dataclass
+class BatchResult:
+    """Rezultat batch obrade više računa."""
+    total: int = 0
+    successful: int = 0
+    needs_review: int = 0
+    failed: int = 0
+    invoices: List[ParsedInvoice] = field(default_factory=list)
+    errors: List[Dict[str, Any]] = field(default_factory=list)
+    tier_distribution: Dict[str, int] = field(default_factory=dict)
+    processing_time_ms: float = 0
+
+    @property
+    def success_rate(self) -> float:
+        return (self.successful / self.total * 100) if self.total > 0 else 0.0
+
+    def summary(self) -> Dict[str, Any]:
+        return {
+            "total": self.total,
+            "successful": self.successful,
+            "needs_review": self.needs_review,
+            "failed": self.failed,
+            "success_rate_pct": round(self.success_rate, 1),
+            "tier_distribution": self.tier_distribution,
+            "processing_time_ms": round(self.processing_time_ms, 1),
+        }
+
+
+class BatchInvoiceProcessor:
+    """
+    Batch obrada više računa — za import foldera s računima.
+    Podržava: PDF, slike, XML, OCR tekst.
+    """
+
+    def __init__(self, parser: Optional['UniversalInvoiceParser'] = None):
+        self._parser = parser or UniversalInvoiceParser()
+
+    def process_batch(self, items: List[Dict[str, Any]]) -> BatchResult:
+        """
+        Obradi batch računa.
+
+        Svaki item u listi: {
+            "content": bytes ili str (OCR tekst),
+            "filename": str,
+            "content_type": "xml" | "pdf" | "image" | "text"
+        }
+        """
+        import time
+        start = time.monotonic()
+        result = BatchResult(total=len(items))
+
+        for i, item in enumerate(items):
+            try:
+                content = item.get("content", "")
+                filename = item.get("filename", f"invoice_{i}")
+                content_type = item.get("content_type", "text")
+
+                if content_type == "xml" and isinstance(content, (bytes, str)):
+                    parsed = self._parser.parse(
+                        xml_content=content if isinstance(content, bytes) else content.encode())
+                elif content_type == "text" or isinstance(content, str):
+                    parsed = self._parser.parse(ocr_text=str(content))
+                else:
+                    parsed = self._parser.parse(
+                        raw_bytes=content if isinstance(content, bytes) else str(content).encode())
+
+                if parsed.validation_status == ValidationStatus.VALID:
+                    result.successful += 1
+                elif parsed.validation_status == ValidationStatus.NEEDS_REVIEW:
+                    result.needs_review += 1
+                else:
+                    result.needs_review += 1
+
+                # Classify invoice type
+                inv_type = classify_invoice_type(
+                    parsed.raw_text or "", parsed.invoice_type)
+                parsed.invoice_type = inv_type.value
+
+                result.invoices.append(parsed)
+
+                # Track tier distribution
+                tier = parsed.parser_tier.value
+                result.tier_distribution[tier] = result.tier_distribution.get(tier, 0) + 1
+
+            except Exception as e:
+                result.failed += 1
+                result.errors.append({
+                    "index": i,
+                    "filename": item.get("filename", ""),
+                    "error": str(e),
+                })
+
+        result.processing_time_ms = (time.monotonic() - start) * 1000
+        return result
+
+
+# ═══════════════════════════════════════════════
+# CORRECTION LEARNING (za DPO / 4-Tier Memory)
+# ═══════════════════════════════════════════════
+
+@dataclass
+class CorrectionRecord:
+    """Zapis korekcije — AI je predložio, čovjek ispravio."""
+    original_field: str          # Koje polje je pogrešno
+    ai_value: str                # Što je AI predložio
+    correct_value: str           # Što je čovjek ispravio
+    invoice_hash: str = ""       # Hash izvora za dedup
+    supplier_oib: str = ""       # Za učenje per-dobavljač
+    timestamp: str = ""
+    correction_type: str = ""    # "field_fix", "add_missing", "remove_wrong"
+
+    def __post_init__(self):
+        if not self.timestamp:
+            self.timestamp = datetime.now().isoformat()
+
+
+class CorrectionTracker:
+    """
+    Prati korekcije AI prijedloga — podloga za:
+    1. L2 Semantic Memory (trajno pravilo per klijent/dobavljač)
+    2. DPO noćna optimizacija (finetune dataset)
+    3. Accuracy metriku po tier-u
+    """
+
+    def __init__(self):
+        self._corrections: List[CorrectionRecord] = []
+        self._field_errors: Dict[str, int] = {}   # Koliko puta je AI pogriješio po polju
+        self._supplier_rules: Dict[str, Dict[str, str]] = {}  # OIB → {polje: ispravna vrijednost}
+
+    def record_correction(self, original: ParsedInvoice,
+                          corrected: Dict[str, Any]) -> List[CorrectionRecord]:
+        """
+        Usporedi AI output s čovjekovom korekcijom.
+        Vraća listu CorrectionRecord-a za svako polje koje je promijenjeno.
+        """
+        records = []
+        fields_to_check = [
+            "invoice_number", "issue_date", "supplier_name", "supplier_oib",
+            "customer_name", "customer_oib", "net_total", "vat_total",
+            "gross_total", "payment_method"
+        ]
+
+        for field_name in fields_to_check:
+            ai_val = str(getattr(original, field_name, ""))
+            human_val = str(corrected.get(field_name, ai_val))
+
+            if ai_val != human_val and human_val:
+                rec = CorrectionRecord(
+                    original_field=field_name,
+                    ai_value=ai_val,
+                    correct_value=human_val,
+                    invoice_hash=original.source_hash,
+                    supplier_oib=original.supplier_oib,
+                    correction_type="field_fix",
+                )
+                records.append(rec)
+                self._corrections.append(rec)
+                self._field_errors[field_name] = self._field_errors.get(field_name, 0) + 1
+
+                # Learn supplier-specific rule
+                if original.supplier_oib:
+                    if original.supplier_oib not in self._supplier_rules:
+                        self._supplier_rules[original.supplier_oib] = {}
+                    self._supplier_rules[original.supplier_oib][field_name] = human_val
+
+        return records
+
+    def get_supplier_overrides(self, supplier_oib: str) -> Dict[str, str]:
+        """Dohvati naučena pravila za dobavljača (L2 Semantic Memory)."""
+        return self._supplier_rules.get(supplier_oib, {})
+
+    def apply_learned_rules(self, invoice: ParsedInvoice) -> ParsedInvoice:
+        """Primijeni naučena pravila na parsirani račun."""
+        rules = self.get_supplier_overrides(invoice.supplier_oib)
+        for field_name, correct_value in rules.items():
+            if hasattr(invoice, field_name):
+                current = str(getattr(invoice, field_name))
+                if not current or current == "0" or current == "":
+                    setattr(invoice, field_name, correct_value)
+        return invoice
+
+    def export_dpo_dataset(self) -> List[Dict[str, Any]]:
+        """
+        Exportaj korekcije u DPO format za noćni finetune.
+        Svaka korekcija = (prompt, chosen, rejected) par.
+        """
+        dataset = []
+        for c in self._corrections:
+            dataset.append({
+                "prompt": f"Izvuci {c.original_field} iz računa dobavljača {c.supplier_oib}",
+                "chosen": c.correct_value,
+                "rejected": c.ai_value,
+                "field": c.original_field,
+                "supplier_oib": c.supplier_oib,
+                "timestamp": c.timestamp,
+            })
+        return dataset
+
+    def accuracy_report(self) -> Dict[str, Any]:
+        """Izvještaj o točnosti po polju."""
+        total = len(self._corrections)
+        return {
+            "total_corrections": total,
+            "by_field": dict(sorted(
+                self._field_errors.items(), key=lambda x: x[1], reverse=True)),
+            "suppliers_with_rules": len(self._supplier_rules),
+            "dpo_dataset_size": total,
+        }
+
+    def get_stats(self) -> Dict[str, Any]:
+        return {
+            "module": "correction_tracker",
+            "total_corrections": len(self._corrections),
+            "fields_corrected": dict(self._field_errors),
+            "supplier_rules": len(self._supplier_rules),
+        }
+
+
+# ═══════════════════════════════════════════════
+# PDF/A-3 EMBEDDED XML DETECTOR
+# ═══════════════════════════════════════════════
+
+class PDFXMLDetector:
+    """
+    Detektira embedded XML (UBL/CII) unutar PDF/A-3 faktura.
+    Od 2026. eRačuni mogu dolaziti kao PDF s ugrađenim XML-om.
+    """
+
+    XML_SIGNATURES = [
+        b"<Invoice xmlns",
+        b"<ubl:Invoice",
+        b"<rsm:CrossIndustryInvoice",
+        b"<CreditNote xmlns",
+        b"urn:oasis:names:specification:ubl",
+        b"urn:un:unece:uncefact:data",
+    ]
+
+    @classmethod
+    def detect_embedded_xml(cls, pdf_bytes: bytes) -> Optional[bytes]:
+        """
+        Pokušaj pronaći XML unutar PDF byteova.
+        PDF/A-3 standard dopušta ugrađivanje XML attachment-a.
+        """
+        if not pdf_bytes or len(pdf_bytes) < 100:
+            return None
+
+        # Method 1: Search for XML signatures directly in PDF stream
+        for sig in cls.XML_SIGNATURES:
+            idx = pdf_bytes.find(sig)
+            if idx > 0:
+                # Try to extract from XML start to end
+                xml_start = pdf_bytes.rfind(b"<?xml", max(0, idx - 200), idx)
+                if xml_start < 0:
+                    xml_start = idx
+
+                # Find closing tag
+                for end_tag in [b"</Invoice>", b"</ubl:Invoice>",
+                                b"</rsm:CrossIndustryInvoice>", b"</CreditNote>"]:
+                    xml_end = pdf_bytes.find(end_tag, xml_start)
+                    if xml_end > 0:
+                        return pdf_bytes[xml_start:xml_end + len(end_tag)]
+
+        # Method 2: Check for embedded file stream markers (PDF standard)
+        ef_marker = pdf_bytes.find(b"/EmbeddedFiles")
+        if ef_marker > 0:
+            # Look for XML content after the marker
+            search_region = pdf_bytes[ef_marker:min(ef_marker + 100000, len(pdf_bytes))]
+            for sig in cls.XML_SIGNATURES:
+                if sig in search_region:
+                    logger.info("PDF/A-3: Pronađen embedded XML attachment")
+                    return search_region  # Simplified; production would parse PDF structure
+
+        return None
+
+    @classmethod
+    def is_eracun_pdf(cls, pdf_bytes: bytes) -> bool:
+        """Brza provjera: je li PDF eRačun s embedded XML-om?"""
+        return cls.detect_embedded_xml(pdf_bytes) is not None
+
+
+# ═══════════════════════════════════════════════
+# INTEGRATION BRIDGE (Parser → Fiskalizacija2 → Ledger)
+# ═══════════════════════════════════════════════
+
+class InvoiceToLedgerBridge:
+    """
+    Most između parsiranog računa i dvojnog knjigovodstva.
+    ParsedInvoice → LedgerEntry-ji → Transaction → book()
+    """
+
+    # Defaultni kontni plan za ulazne račune
+    DEFAULT_KONTA = {
+        "ulazni_pdv_25": "1400",     # Pretporez 25%
+        "ulazni_pdv_13": "1401",     # Pretporez 13%
+        "ulazni_pdv_5": "1402",      # Pretporez 5%
+        "obveza_dobavljac": "2200",   # Dobavljači u zemlji
+        "obveza_dobavljac_eu": "2210",# Dobavljači iz EU
+        "materijal": "4010",          # Utrošeni materijal
+        "usluge": "4030",             # Vanjske usluge
+        "energija": "4020",           # Energija
+        "najam": "4040",              # Najam
+        "reprezentacija": "4091",     # Reprezentacija
+        "banka": "1000",              # Žiro račun
+    }
+
+    @classmethod
+    def invoice_to_entries(cls, invoice: ParsedInvoice,
+                           expense_konto: str = "") -> Dict[str, Any]:
+        """
+        Pretvori parsirani račun u prijedlog knjiženja.
+        Vraća dict s entries za Transaction.
+        """
+        entries = []
+        net = invoice.net_total
+        vat = invoice.vat_total
+        gross = invoice.gross_total
+
+        if not expense_konto:
+            expense_konto = cls._guess_expense_konto(invoice)
+
+        # Dugovna strana: Trošak + PDV
+        if net > 0:
+            entries.append({
+                "konto": expense_konto,
+                "strana": "duguje",
+                "iznos": str(net),
+                "opis": f"Trošak: {invoice.supplier_name} R#{invoice.invoice_number}",
+                "partner_oib": invoice.supplier_oib,
+            })
+
+        if vat > 0:
+            vat_konto = cls._get_vat_konto(invoice)
+            entries.append({
+                "konto": vat_konto,
+                "strana": "duguje",
+                "iznos": str(vat),
+                "opis": f"Pretporez: {invoice.supplier_name} R#{invoice.invoice_number}",
+            })
+
+        # Potražna strana: Obveza prema dobavljaču
+        if gross > 0:
+            entries.append({
+                "konto": cls.DEFAULT_KONTA["obveza_dobavljac"],
+                "strana": "potrazuje",
+                "iznos": str(gross),
+                "opis": f"Obveza: {invoice.supplier_name} R#{invoice.invoice_number}",
+                "partner_oib": invoice.supplier_oib,
+            })
+
+        return {
+            "datum": invoice.issue_date or date.today().isoformat(),
+            "opis": f"UR {invoice.invoice_number} - {invoice.supplier_name}",
+            "entries": entries,
+            "document_ref": invoice.invoice_number,
+            "source": "universal_parser",
+            "metadata": {
+                "parser_tier": invoice.parser_tier.value,
+                "confidence": invoice.confidence,
+                "supplier_oib": invoice.supplier_oib,
+            }
+        }
+
+    @classmethod
+    def _guess_expense_konto(cls, invoice: ParsedInvoice) -> str:
+        """Pokušaj pogoditi konto troška na temelju opisa."""
+        text_lower = (invoice.raw_text or "").lower()
+        items_text = " ".join(
+            i.description.lower() for i in invoice.items if i.description)
+        combined = f"{text_lower} {items_text}"
+
+        konto_hints = {
+            "4020": ["struja", "plin", "energi", "hep", "gradska plinara",
+                      "elektr", "vodovod", "toplinar"],
+            "4040": ["najam", "zakup", "rent", "lease"],
+            "4091": ["reprezentac", "ugostitelj", "restoran", "hotel",
+                      "smještaj"],
+            "4010": ["materijal", "sirov", "ambalž", "papir", "toner",
+                      "uredski"],
+            "4030": ["uslug", "konzult", "savjetov", "it ", "programir",
+                      "računovodstv", "revizij", "odvjetnič", "pravni"],
+            "4050": ["telefon", "mobitel", "internet", "hosting",
+                      "pretplat", "softver", "licenc"],
+            "4060": ["gorivo", "benzin", "dizel", "ina ", "petrol",
+                      "lukoil", "mol "],
+            "4070": ["održava", "servis", "popravak", "zamjena"],
+            "4080": ["osiguran", "polica", "premij"],
+        }
+
+        for konto, keywords in konto_hints.items():
+            if any(kw in combined for kw in keywords):
+                return konto
+
+        return cls.DEFAULT_KONTA["usluge"]  # Default: vanjske usluge
+
+    @classmethod
+    def _get_vat_konto(cls, invoice: ParsedInvoice) -> str:
+        """Odredi konto pretporeza na temelju stope."""
+        if invoice.items:
+            max_rate = max(i.vat_rate for i in invoice.items)
+            if max_rate == 13:
+                return cls.DEFAULT_KONTA["ulazni_pdv_13"]
+            elif max_rate == 5:
+                return cls.DEFAULT_KONTA["ulazni_pdv_5"]
+        return cls.DEFAULT_KONTA["ulazni_pdv_25"]

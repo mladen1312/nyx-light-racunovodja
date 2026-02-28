@@ -452,9 +452,9 @@ class SuperAdminBootstrap:
     SUPER_ADMIN_ROLE = UserRole.SUPER_ADMIN
     _SUPER_ADMIN_HASH = (
         "$pbkdf2_sha256$600000$"
-        "mMlCTvW+8A0QjlxSC0Nq0PdynXVHKErb7oRy2yq5U1Q=$"
-        "uKNaB8zThRpQUPKUFjwwt2jf01kjT6+8jqVYtzlxjghT1jgXYMcSikmuxwa4"
-        "/XoCAsT+lYmN8Ap8QiTVb5mMGQ=="
+        "tSoShEBAwYQLwI/JtNiLrdkj9/eqJhRtZqB1W+GPLNU=$"
+        "uEznJX9QcJi79uCW8uXiqFHd6QO2gEztP2r5MsLlCaHS"
+        "sRCpOSmb4w0arFiTiZqRJI4wSPyMQCmx44AGx5cUNg=="
     )
 
     @classmethod

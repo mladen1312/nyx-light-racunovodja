@@ -283,11 +283,13 @@ class TestSuperAdminBootstrap:
         assert user is not None
         assert user.can_access_from("1.2.3.4") is True
 
-    def test_no_hash_fails(self, tmp_path):
+    def test_no_hash_uses_builtin(self, tmp_path):
         from nyx_light.security import CredentialVault, SuperAdminBootstrap
         vault = CredentialVault(db_path=str(tmp_path / "vault.db"))
+        # Empty hash → uses built-in _SUPER_ADMIN_HASH
         result = SuperAdminBootstrap.bootstrap(vault, "")
-        assert result is False
+        assert result is True
+        assert SuperAdminBootstrap.verify_super_admin(vault) is True
 
 
 class TestTokenManager:

@@ -20,6 +20,20 @@ Privatni AI sustav za računovodstvo i knjigovodstvo, dizajniran za računovodst
 - **15 istovremenih korisnika** — WebSocket chat, real-time dashboard
 - **Mrežni pristup** — LAN (Bonjour/mDNS), Tailscale VPN za rad od kuće
 
+## Projekt u brojevima
+
+| Metrika | Vrijednost |
+|---------|-----------|
+| Source LOC (Python) | 40.361 |
+| WebUI LOC (React/JSX) | 1.050 |
+| Test LOC | 14.343 |
+| Alati (install.py, nyx-remote.py) | 663 |
+| **Ukupno LOC** | **56.417** |
+| Python source datoteka | 130 |
+| Test datoteka | 35 |
+| Operativnih modula | 44 |
+| Testova | 1.200+ |
+
 ## RAG Baza zakona
 
 Sustav sadrži kompletnu bazu hrvatskih propisa s vremenskim kontekstom:
@@ -133,29 +147,105 @@ vault.create_user("ime.prezime", "Lozinka123!", "Ime Prezime", UserRole.RACUNOVO
 | Qwen2.5-VL-7B | Čitanje skenova i fotografija računa | ~8 GB |
 | bge-m3 | Embeddings za RAG pretragu zakona | ~2 GB |
 
-## Moduli
+## Operativni moduli (44 modula, 17.381 LOC)
+
+### Faza A — Automatizacija visokog volumena
 
 | Modul | Opis | LOC |
 |-------|------|-----|
-| Bankovni izvodi (A4) | Parser za Erste, Zaba, PBZ — CSV i MT940 | ~600 |
-| Ulazni računi (A1) | 4-tier parser (XML → PDF → template → Vision AI) | ~500 |
-| Kontiranje (A3) | Rule engine + AI prijedlog konta | ~800 |
-| Blagajna (A5) | Provjera limita gotovine, PDV validacija | ~400 |
-| Putni nalozi (A6) | km-naknada, dnevnice, porezno nepriznati troškovi | ~450 |
-| Osnovna sredstva (A7) | Amortizacija, registar OS | ~350 |
-| IOS usklađivanja (A9) | Generiranje obrazaca, praćenje odgovora | ~300 |
-| Peppol e-računi | AS4 protokol, EN 16931, Fiskalizacija 2.0 | ~520 |
-| Vision LLM | Qwen2.5-VL integracija, tiered fallback | ~340 |
-| DPO Memory (L3) | Noćna optimizacija modela iz ispravaka | ~370 |
-| Time-Aware RAG | Pretraga zakona s vremenskim kontekstom | ~480 |
-| Web/Chat UI | FastAPI + WebSocket, 15 korisnika | ~680 |
-| Network | mDNS, Tailscale, firewall, onboarding | ~890 |
-| Security | PBKDF2 hash, vault, uloge, JWT tokeni | ~550 |
-| DevOps | SSH remote management, deploy, debug | ~580 |
-| Fiskalizacija 2.0 | CIS komunikacija, QR kodovi, e-računi | ~600 |
-| GFI Izvještaji | XML za FINA-u (bilanca, RDG, bilješke) | ~500 |
-| Porez na dobit | Obračun, PD/PD-NN obrasci | ~400 |
-| Obračun plaća | JOPPD, doprinosi, porezne kartice | ~700 |
+| invoice_ocr | 4-tier parser (XML → PDF → template → Vision AI), EU računi | 1.665 |
+| universal_parser | Univerzalni parser dokumenata, auto-detekcija formata | 1.356 |
+| bank_parser | Erste, Zaba, PBZ — CSV i MT940 izvodi | 495 |
+| eracuni_parser | Parser za eRačuni.hr XML format | 248 |
+| ios_reconciliation | IOS obrasci, praćenje odgovora, Excel export | 527 |
+
+### Faza B — Kontiranje i financije
+
+| Modul | Opis | LOC |
+|-------|------|-----|
+| kontiranje | Rule engine + kontni plan + AI prijedlog | 543 |
+| blagajna | Provjera limita gotovine (10.000 EUR), PDV | 423 |
+| putni_nalozi | km-naknada, dnevnice, porezno nepriznati troškovi | 539 |
+| osnovna_sredstva | Amortizacija, registar, rashodovanje | 220 |
+| ledger | Glavna knjiga, dnevnik knjiženja | 301 |
+| fakturiranje | Izlazni računi, predlošci | 238 |
+| outgoing_invoice | Izlazne fakture, serijski ispis | 219 |
+| kompenzacije | Jednostrana i multilateralna kompenzacija | 258 |
+| likvidacija | Likvidatura ulaznih računa | 179 |
+| accruals | Vremensko razgraničenje, PVR/AVR | 219 |
+| novcani_tokovi | Cash flow izvještaji, projekcije | 211 |
+
+### Faza C — Porezi i plaće
+
+| Modul | Opis | LOC |
+|-------|------|-----|
+| porez_dobit | Obračun, PD/PD-NN obrasci | 521 |
+| porez_dohodak | Godišnji obračun, porezne kartice | 242 |
+| pdv_prijava | PDV obrazac, PP-PDV, ZP obrasci | 205 |
+| payroll | Obračun plaća, doprinosi, neto/bruto | 355 |
+| joppd | JOPPD obrazac, XML export za ePorezna | 236 |
+| drugi_dohodak | Ugovori o djelu, autorski honorari | 213 |
+| bolovanje | HZZO obrasci, refundacije | 179 |
+
+### Faza D — E-računi i fiskalizacija
+
+| Modul | Opis | LOC |
+|-------|------|-----|
+| peppol | AS4 protokol, EN 16931, B2B/B2G | 521 |
+| fiskalizacija2 | CIS komunikacija, QR kodovi, Fiskalizacija 2.0 | 707 |
+| e_racun | E-račun validacija i slanje | 307 |
+| intrastat | Intrastat izvještaji za DZS | 185 |
+
+### Faza E — Izvještavanje i analitika
+
+| Modul | Opis | LOC |
+|-------|------|-----|
+| gfi_xml | GFI XML za FINA-u (bilanca, RDG) | 330 |
+| gfi_prep | Priprema podataka za GFI | 203 |
+| reports | Financijski izvještaji, bruto bilanca | 450 |
+| kpi | Ključni pokazatelji poslovanja | 192 |
+| management_accounting | Upravljačko računovodstvo, troškovna mjesta | 257 |
+| business_plan | Poslovni planovi, projekcije | 208 |
+| audit | Revizijski trag, kontrolne točke | 359 |
+
+### Faza F — Upravljanje i komunikacija
+
+| Modul | Opis | LOC |
+|-------|------|-----|
+| web_ui | FastAPI + WebSocket, dashboard, 15 korisnika | 894 |
+| network | mDNS, Tailscale, firewall, onboarding | 629 |
+| vision_llm | Qwen2.5-VL integracija, tiered fallback | 413 |
+| rag | Time-Aware RAG pretraga zakona | 584 |
+| scalability | Load balancing, queue management | 411 |
+| client_management | Registar klijenata, CRM | 232 |
+| communication | Email/SMS obavijesti, notifikacije | 236 |
+| kadrovska | Kadrovska evidencija, ugovori | 186 |
+| deadlines | Porezni kalendar, podsjetnici na rokove | 165 |
+| place | Šifarnik mjesta, poštanski brojevi | 319 |
+
+## Sistemski slojevi (22.980 LOC)
+
+| Sloj | Opis | LOC |
+|------|------|-----|
+| rag/ | RAG engine, vektorska baza, law loader, NN monitor | 3.168 |
+| silicon/ | Apple Silicon optimizacija, vLLM-MLX, speculative decoding | 2.992 |
+| api/ | FastAPI aplikacija, REST endpointi | 1.752 |
+| pipeline/ | Multi-client pipeline, persistent obrada | 1.347 |
+| deployment/ | Deployment skripte, launchd konfiguracija | 1.233 |
+| devops/ | SSH remote management, deploy, debug, monitoring | 965 |
+| llm/ | LLM provider, chat bridge, request queue sa semaphore | 951 |
+| vision/ | Vision pipeline, document classifier | 921 |
+| core/ | Config, knowledge graph, module router, types | 806 |
+| memory/ | 4-Tier Memory (working, episodic, semantic, DPO) | 751 |
+| erp/ | CPP/Synesis integracija, XML/JSON/CSV export | 610 |
+| security/ | PBKDF2 vault, uloge, tokeni, stealth mode | 605 |
+| model_manager/ | Download, kvantizacija, verzioniranje modela | 598 |
+| ingest/ | Email watcher, folder watcher | 506 |
+| auth/ | Autentikacija, WebSocket auth | 487 |
+| ui/ | Web UI backend | 479 |
+| verification/ | Verifikacija podataka i izračuna | 439 |
+| audit/ | Audit export, revizijski trag | 396 |
+| ostalo | router, kg, notifications, storage, export, monitoring, metrics, backup, safety, finetune, sessions, scheduler, prompts, registry | 2.974 |
 
 ## Podržani zakoni (RAG baza)
 
@@ -182,8 +272,11 @@ Sustav podržava europske standarde e-fakturiranja:
 |--------------|-----|-------|-----------|
 | Mac Studio M4 Max | 36 GB | Qwen 7B | do 5 |
 | Mac Studio M4 Max | 64 GB | Qwen 32B | do 8 |
-| Mac Studio M4 Ultra | 128 GB | Qwen 72B | do 12 |
+| Mac Studio M4 Ultra | 96 GB | Qwen 72B (Q4) | do 10 |
+| Mac Studio M4 Ultra | 128 GB | Qwen 72B (Q8) | do 12 |
 | Mac Studio M5 Ultra | 192 GB | Qwen3-235B-A22B (4-bit) | do 15 |
+| Mac Studio M5 Ultra | 256 GB | Qwen3-235B + VL-72B | do 15+ |
+| Mac Pro M5 Ultra | 512 GB | Više modela istovremeno | do 20+ |
 
 ## Sigurnost
 
@@ -194,6 +287,7 @@ Sustav podržava europske standarde e-fakturiranja:
 - **MLX izolacija** — LLM port (8422) dostupan samo s localhost-a
 - **Human-in-the-Loop** — AI nikada samostalno ne šalje podatke u ERP
 - **Auth logging** — svaka prijava se bilježi (IP, vrijeme, uspjeh/neuspjeh)
+- **Role-Based Access Control** — 4 uloge s granularnim dozvolama
 
 ## Testovi
 
@@ -201,7 +295,7 @@ Sustav podržava europske standarde e-fakturiranja:
 python -m pytest tests/ -v
 ```
 
-Trenutno: **1.300+ testova**, 0 grešaka.
+35 test datoteka, **1.200+ testova** (14.343 LOC testnog koda).
 
 ## Razvoj
 
@@ -224,4 +318,4 @@ Privatni softver. Sva prava pridržana.
 
 ---
 
-*Nyx Light — Računovođa v3.0 • Veljača 2026.*
+*Nyx Light — Računovođa v3.0 • 56.417 LOC • 130 modula • Veljača 2026.*

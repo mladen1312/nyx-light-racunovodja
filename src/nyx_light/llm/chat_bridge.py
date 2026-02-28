@@ -275,10 +275,38 @@ class ChatBridge:
         }
 
     def _fallback_response(self, user_msg: str) -> str:
-        """Pametni fallback kad LLM server nije dostupan — koristi RAG i module."""
+        """Pametni fallback kad LLM server nije dostupan — koristi Executor + RAG."""
         msg_lower = user_msg.lower()
 
-        # 1. Pokušaj RAG pretragu zakona
+        # 1. Pokušaj Module Executor — NOVI!
+        try:
+            from nyx_light.router import ModuleRouter
+            from nyx_light.api.module_executor import ModuleExecutor
+            router = ModuleRouter()
+            executor = ModuleExecutor()
+            route = router.route(user_msg)
+
+            if route.confidence > 0.5 and route.module != "general":
+                result = executor.execute(
+                    module=route.module,
+                    sub_intent=route.sub_intent,
+                    data=route.entities,
+                )
+                # Samo koristi executor ako je vratio STVARNE podatke (ne samo info)
+                if result.success and result.data and result.action != "info":
+                    response = f"📊 **{route.module.replace('_', ' ').title()}**\n\n{result.summary}"
+                    if isinstance(result.data, dict):
+                        for k, v in list(result.data.items())[:5]:
+                            if v and str(v) != "{}":
+                                response += f"\n• {k}: {v}"
+                    response += ("\n\n⚠️ AI model nije pokrenut — "
+                                 "ovo je rezultat iz modula bez LLM interpretacije. "
+                                 "Pokrenite `./start.sh llm` za potpune odgovore.")
+                    return response
+        except Exception:
+            pass
+
+        # 2. Pokušaj RAG pretragu zakona
         try:
             from nyx_light.rag import EmbeddedVectorStore
             store = EmbeddedVectorStore()
@@ -300,7 +328,7 @@ class ChatBridge:
         except Exception:
             pass
 
-        # 2. Module-specific responses
+        # 3. Module-specific responses (legacy keyword fallback)
         if any(w in msg_lower for w in ["pdv", "porez na dodanu"]):
             return ("Pitanje o PDV-u. Prema Zakonu o PDV-u (NN 73/13), "
                     "standardna stopa je 25%, snižene 13% (ugostiteljstvo, namirnice) "

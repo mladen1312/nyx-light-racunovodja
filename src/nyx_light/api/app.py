@@ -429,15 +429,97 @@ async def ws_chat(ws: WebSocket):
                     })
                     continue
 
-            # ── 3. Stream response s per-user session ──
+            # ── 3. Module Routing + Execution (ista logika kao /api/chat) ──
+            context = ChatContext()
+            client_id = data.get("client_id", "")
+
+            # Memory kontekst
+            if client_id:
+                hint = state.memory.get_kontiranje_hint(client_id)
+                if hint:
+                    context.semantic_facts.append(hint["hint"])
+                context.client_info = {"id": client_id}
+
+            # L1 episodic
+            try:
+                today_eps = state.memory.l1_episodic.search_today(msg[:50])
+                for ep in today_eps[:3]:
+                    context.episodic_recent.append(f"Ranije: {ep.query} → {ep.response[:100]}")
+            except Exception:
+                pass
+
+            # RAG
+            try:
+                from nyx_light.rag.embedded_store import EmbeddedVectorStore
+                rag_store = EmbeddedVectorStore()
+                rag_results = rag_store.search(msg, top_k=3)
+                if rag_results:
+                    context.rag_results = [
+                        {"text": getattr(r, "text", ""), "source": getattr(r, "law_name", ""),
+                         "article": getattr(r, "article_number", ""),
+                         "score": getattr(r, "score", 0)}
+                        for r in rag_results if getattr(r, "text", "")
+                    ]
+            except Exception:
+                pass
+
+            # Module Executor — ISTA LOGIKA KAO /api/chat
+            module_result = None
+            try:
+                from nyx_light.router import ModuleRouter
+                route = ModuleRouter().route(msg)
+
+                if route.confidence > 0.6 and route.module != "general" and state.executor:
+                    module_result = state.executor.execute(
+                        module=route.module,
+                        sub_intent=route.sub_intent,
+                        data=route.entities,
+                        client_id=client_id,
+                        user_id=user_id,
+                    )
+                    if module_result and module_result.llm_context:
+                        context.semantic_facts.append(
+                            f"[Modul {route.module} ({route.confidence:.0%}): "
+                            f"{module_result.llm_context}]"
+                        )
+                    if module_result and module_result.data:
+                        context.pipeline_context = (
+                            f"Modul '{route.module}' izvršen. Rezultat: {module_result.summary}. "
+                            f"Podaci: {str(module_result.data)[:500]}"
+                        )
+                elif route.confidence > 0.4 and route.module != "general":
+                    context.semantic_facts.append(
+                        f"[Router: moguć modul '{route.module}' "
+                        f"(confidence: {route.confidence:.0%})]"
+                    )
+            except Exception as e:
+                logger.debug("WS module routing: %s", e)
+
+            # ── 4. Stream LLM response s kontekstom ──
             full = ""
-            async for token in state.chat_bridge.chat_stream(msg, session_id):
-                full += token
-                await ws.send_json({"type": "token", "content": token})
+            async for token_str in state.chat_bridge.chat_stream(msg, session_id, context):
+                full += token_str
+                await ws.send_json({"type": "token", "content": token_str})
 
-            await ws.send_json({"type": "done", "content": full})
+            done_msg = {"type": "done", "content": full}
+            if module_result:
+                done_msg["module_used"] = module_result.module
+                done_msg["module_action"] = module_result.action
+                done_msg["module_success"] = module_result.success
+                if module_result.data:
+                    done_msg["module_data"] = module_result.data
+            await ws.send_json(done_msg)
 
-            # ── 4. Track u session manageru ──
+            # ── 5. Episodic memory ──
+            try:
+                state.memory.l1_episodic.store(
+                    query=msg, response=full[:500],
+                    user_id=user_id, session_id=session_id,
+                )
+            except Exception:
+                pass
+
+            # ── 6. Track u session manageru ──
             if state.session_mgr:
                 state.session_mgr.record_message(
                     state.session_mgr.get_session_by_user(user_id).session_id
@@ -1646,19 +1728,8 @@ async def blagajna_nalog(request: Request, user=Depends(get_current_user)):
         "saldo": bv.get_saldo(),
     }
 
-@app.post("/api/blagajna/validate")
-async def blagajna_validate(request: Request, user=Depends(get_current_user)):
-    """Quick validacija blagajničke transakcije."""
-    data = await request.json()
-    from nyx_light.modules.blagajna.validator import BlagajnaValidator
-    bv = BlagajnaValidator()
-    return bv.validate_transaction(
-        iznos=float(data.get("iznos", 0)),
-        partner_oib=data.get("partner_oib", ""),
-    )
-
 # ═══════════════════════════════════════════
-# PUTNI NALOZI ENDPOINTS
+# PUTNI NALOZI ENDPOINTS (extended)
 # ═══════════════════════════════════════════
 
 @app.post("/api/putni-nalog/create")
@@ -1684,12 +1755,6 @@ async def putni_nalog_create(request: Request, user=Depends(get_current_user)):
         relacija=data.get("relacija", ""),
     )
     return pnc.to_dict(pn)
-
-@app.get("/api/putni-nalog/dnevnice")
-async def putni_nalog_dnevnice(zemlja: str = "rh", user=Depends(get_current_user)):
-    """Dohvati dnevnice za zemlju."""
-    from nyx_light.modules.putni_nalozi.checker import PutniNaloziChecker
-    return PutniNaloziChecker().get_dnevnica_info(zemlja)
 
 @app.get("/api/putni-nalog/zemlje")
 async def putni_nalog_zemlje(user=Depends(get_current_user)):
@@ -1722,39 +1787,6 @@ async def porez_dobit_calc(request: Request, user=Depends(get_current_user)):
         placeni_predujmovi=float(data.get("placeni_predujmovi", 0)),
     )
     return engine.to_dict(pd)
-
-# ═══════════════════════════════════════════
-# KONTIRANJE ENDPOINTS
-# ═══════════════════════════════════════════
-
-@app.post("/api/kontiranje/suggest")
-async def kontiranje_suggest(request: Request, user=Depends(get_current_user)):
-    """AI prijedlog kontiranja."""
-    data = await request.json()
-    from nyx_light.modules.kontiranje.engine import KontiranjeEngine
-    engine = KontiranjeEngine()
-    prijedlog = engine.suggest_konto(
-        description=data.get("opis", ""),
-        tip_dokumenta=data.get("tip", "ulazni"),
-        supplier_name=data.get("dobavljac", ""),
-        iznos=float(data.get("iznos", 0)),
-        pdv_stopa=float(data.get("pdv_stopa", 25)),
-    )
-    return {
-        "duguje": prijedlog.duguje_konto, "duguje_naziv": prijedlog.duguje_naziv,
-        "potrazuje": prijedlog.potrazuje_konto, "potrazuje_naziv": prijedlog.potrazuje_naziv,
-        "pdv_konto": prijedlog.pdv_konto, "pdv_iznos": prijedlog.pdv_iznos,
-        "confidence": prijedlog.confidence, "source": prijedlog.source,
-        "rule_id": prijedlog.rule_id, "napomena": prijedlog.napomena,
-        "alternativni": prijedlog.alternativni,
-        "requires_approval": prijedlog.requires_approval,
-    }
-
-@app.get("/api/kontiranje/search")
-async def kontiranje_search(q: str = "", user=Depends(get_current_user)):
-    """Pretraži kontni plan."""
-    from nyx_light.modules.kontiranje.engine import suggest_konto_by_keyword
-    return {"results": suggest_konto_by_keyword(q, limit=10)}
 
 # ═══════════════════════════════════════════
 # GFI ENDPOINTS

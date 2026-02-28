@@ -671,7 +671,24 @@ class TestChatRAGIntegration:
     def test_chat_endpoint_with_rag(self):
         """Test da chat endpoint uključuje RAG u context."""
         from fastapi.testclient import TestClient
-        from nyx_light.api.app import app
+        from nyx_light.api.app import app, state
+        # Ensure all required state is initialized for test
+        if not state.auth:
+            from nyx_light.auth import AuthManager
+            state.auth = AuthManager()
+        if not state.chat_bridge:
+            from nyx_light.llm.chat_bridge import ChatBridge
+            state.chat_bridge = ChatBridge()
+        if not state.overseer:
+            from nyx_light.safety.overseer import AccountingOverseer
+            state.overseer = AccountingOverseer()
+        if not state.memory:
+            from nyx_light.memory.system import MemorySystem
+            state.memory = MemorySystem()
+        if not state.storage:
+            from nyx_light.storage.sqlite_store import SQLiteStorage
+            state.storage = SQLiteStorage()
+
         client = TestClient(app)
         resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
         token = resp.json()["token"]

@@ -189,12 +189,12 @@ class ModuleExecutor:
         from nyx_light.modules.ios_reconciliation.ios import IOSReconciliation
         ios = IOSReconciliation()
 
-        if sub_intent == "generate":
-            result = ios.generate(
-                client_id=client_id,
-                partner_oib=data.get("partner_oib", ""),
-                datum=data.get("datum", ""),
-                stavke=data.get("stavke", []),
+        if sub_intent == "generate" and (client_id or data.get("partner_oib")):
+            result = ios.generate_ios_form(
+                client_id=client_id or data.get("client_id", ""),
+                partner_oib=data.get("partner_oib", data.get("oib", "")),
+                datum_od=data.get("datum_od", data.get("datum", "")),
+                datum_do=data.get("datum_do", ""),
             )
             return ModuleResult(
                 success=True, module="ios", action="generate",

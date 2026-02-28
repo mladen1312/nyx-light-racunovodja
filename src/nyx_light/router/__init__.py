@@ -84,7 +84,7 @@ INTENT_PATTERNS = {
     },
     "blagajna": {
         "keywords": [
-            r"\b(blagajn|gotovina|cash|primka|izdatnica|limit.*10|"
+            r"\b(blagajn\w*|gotovina|cash|primka|izdatnica|limit.*10|"
             r"blagajnički|dnevni promet|gotovinski)\b"
         ],
         "sub_intents": {
@@ -497,7 +497,8 @@ class ModuleRouter:
             scores.append((module, confidence, sub_intent))
 
         if not scores:
-            return RouteResult(module="general", confidence=0.3)
+            entities = self._extract_entities(message)
+            return RouteResult(module="general", confidence=0.3, entities=entities)
 
         # Sort by confidence
         scores.sort(key=lambda x: x[1], reverse=True)
@@ -538,13 +539,25 @@ class ModuleRouter:
         if iban_match:
             entities["iban"] = iban_match.group(1)
 
-        # Iznos (EUR)
+        # Iznos (EUR) — podržava: 5000 EUR, 1.250,00 EUR, 500,00€
         iznos_match = re.search(
-            r'(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)\s*(?:EUR|€|eur|kn|HRK)',
+            r'(\d[\d.,]*\d)\s*(?:EUR|€|eur|kn|HRK)',
             message,
         )
+        if not iznos_match:
+            # Fallback: "iznos X" ili "za X" s brojem
+            iznos_match = re.search(
+                r'(?:iznos|za|od|bruto|neto)\s+(\d[\d.,]*\d)',
+                message.lower(),
+            )
         if iznos_match:
-            entities["iznos"] = iznos_match.group(1).replace(".", "").replace(",", ".")
+            raw = iznos_match.group(1)
+            # HR format: 1.250,00 → 1250.00
+            if "," in raw and "." in raw:
+                raw = raw.replace(".", "").replace(",", ".")
+            elif "," in raw:
+                raw = raw.replace(",", ".")
+            entities["iznos"] = raw
 
         # Konto (4 znamenke)
         konto_match = re.findall(r'\b(\d{4})\b', message)

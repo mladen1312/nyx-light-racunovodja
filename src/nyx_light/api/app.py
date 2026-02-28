@@ -453,7 +453,7 @@ def _build_module_card(module: str, sub_intent: str,
             "module": module,
         }
 
-        if module == "kontiranje":
+        if module in ("kontiranje",):
             card["type"] = "konto"
             card["rows"] = []
             kd = data.get("konto_duguje") or data.get("duguje", "")
@@ -469,7 +469,7 @@ def _build_module_card(module: str, sub_intent: str,
             if data.get("alternativni"):
                 card["alternatives"] = data["alternativni"][:3]
 
-        elif module == "blagajna":
+        elif module in ("blagajna",):
             card["type"] = "validation"
             card["rows"] = [
                 {"label": "Iznos", "value": f"{data.get('iznos', '?')} EUR", "icon": "💶"},
@@ -493,7 +493,7 @@ def _build_module_card(module: str, sub_intent: str,
                 if data.get(key) is not None:
                     card["rows"].append({"label": label, "value": f"{data[key]} EUR", "icon": icon})
 
-        elif module == "pdv":
+        elif module in ("pdv_prijava", "pdv"):
             card["type"] = "tax"
             card["rows"] = [
                 {"label": "Pretporez", "value": f"{data.get('pretporez', 0)} EUR", "icon": "📥"},
@@ -501,7 +501,7 @@ def _build_module_card(module: str, sub_intent: str,
                 {"label": "Za uplatu/povrat", "value": f"{data.get('razlika', 0)} EUR", "icon": "💶"},
             ]
 
-        elif module == "porez_dobit":
+        elif module in ("porez_dobit",):
             card["type"] = "tax"
             card["rows"] = [
                 {"label": "Dobit", "value": f"{data.get('dobit', 0)} EUR", "icon": "📈"},
@@ -509,7 +509,7 @@ def _build_module_card(module: str, sub_intent: str,
                 {"label": "Porez", "value": f"{data.get('porez', 0)} EUR", "icon": "🏛️"},
             ]
 
-        elif module == "putni_nalog":
+        elif module in ("putni_nalozi", "putni_nalog"):
             card["type"] = "travel"
             card["rows"] = [
                 {"label": "Dnevnice", "value": f"{data.get('dnevnice', 0)} EUR", "icon": "🍽️"},
@@ -517,7 +517,7 @@ def _build_module_card(module: str, sub_intent: str,
                 {"label": "Ukupno", "value": f"{data.get('ukupno', 0)} EUR", "icon": "💰"},
             ]
 
-        elif module == "deadlines":
+        elif module in ("deadlines",):
             card["type"] = "list"
             items = data if isinstance(data, list) else data.get("items", [])
             card["items"] = [
@@ -526,7 +526,7 @@ def _build_module_card(module: str, sub_intent: str,
                 for d in items[:5]
             ]
 
-        elif module in ("bank", "banka"):
+        elif module in ("bank_parser", "bank", "banka"):
             card["type"] = "table"
             txns = data.get("transactions", [])[:5]
             card["headers"] = ["Datum", "Opis", "Iznos"]
@@ -535,6 +535,32 @@ def _build_module_card(module: str, sub_intent: str,
                 for t in txns
             ]
             card["total"] = data.get("count", len(txns))
+
+        elif module in ("joppd",):
+            card["type"] = "generic"
+            card["rows"] = [
+                {"label": "Tip", "value": data.get("tip", "plaća"), "icon": "📄"},
+                {"label": "Mjesec", "value": str(data.get("mjesec", "")), "icon": "📅"},
+                {"label": "Status", "value": data.get("status", "generirano"), "icon": "✅"},
+            ]
+            if data.get("xml_path"):
+                card["rows"].append({"label": "XML", "value": "Spremljen", "icon": "💾"})
+
+        elif module in ("gfi_xml", "gfi_prep"):
+            card["type"] = "generic"
+            card["rows"] = [
+                {"label": "Godina", "value": str(data.get("godina", "")), "icon": "📅"},
+                {"label": "Tip", "value": data.get("tip", "bilanca"), "icon": "📊"},
+                {"label": "Status", "value": data.get("status", "generirano"), "icon": "✅"},
+            ]
+
+        elif module in ("amortizacija", "osnovna_sredstva"):
+            card["type"] = "generic"
+            card["rows"] = [
+                {"label": "Stopa", "value": f"{data.get('stopa', '?')}%", "icon": "📊"},
+                {"label": "Grupa", "value": str(data.get("grupa", "")), "icon": "🏭"},
+                {"label": "Godišnji iznos", "value": f"{data.get('godisnji_iznos', '?')} EUR", "icon": "💰"},
+            ]
 
         else:
             # Generic card — show all key-value pairs
@@ -557,9 +583,12 @@ def _card_type_for_module(module: str) -> str:
     return {
         "kontiranje": "konto", "blagajna": "validation",
         "place": "payroll", "payroll": "payroll",
-        "pdv": "tax", "porez_dobit": "tax",
-        "putni_nalog": "travel", "deadlines": "list",
-        "bank": "table", "banka": "table",
+        "pdv_prijava": "tax", "pdv": "tax", "porez_dobit": "tax",
+        "putni_nalozi": "travel", "putni_nalog": "travel",
+        "deadlines": "list",
+        "bank_parser": "table", "bank": "table", "banka": "table",
+        "joppd": "generic", "gfi_xml": "generic", "gfi_prep": "generic",
+        "amortizacija": "generic", "osnovna_sredstva": "generic",
     }.get(module, "generic")
 
 

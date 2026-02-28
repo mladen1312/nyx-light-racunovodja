@@ -87,24 +87,33 @@ class TestDPOPairRecording:
 
     @pytest.mark.asyncio
     async def test_train_nightly_skipped_insufficient(self):
+        import shutil
         from nyx_light.finetune.nightly_dpo import NightlyDPOTrainer
-        trainer = NightlyDPOTrainer(data_dir="/tmp/nyx-test-dpo-train")
+        d = f"/tmp/nyx-test-dpo-skip-{int(__import__('time').time())}"
+        trainer = NightlyDPOTrainer(data_dir=d)
         # Only 3 pairs, need 10
         for i in range(3):
             trainer.record_pair(prompt=f"P{i}", chosen=f"C{i}", rejected=f"R{i}")
         result = await trainer.train_nightly()
         assert result["status"] == "skipped"
+        shutil.rmtree(d, ignore_errors=True)
 
     @pytest.mark.asyncio
     async def test_train_nightly_with_enough_pairs(self):
+        import shutil
         from nyx_light.finetune.nightly_dpo import NightlyDPOTrainer
-        trainer = NightlyDPOTrainer(data_dir="/tmp/nyx-test-dpo-train2")
+        d = f"/tmp/nyx-test-dpo-train-{int(__import__('time').time())}"
+        trainer = NightlyDPOTrainer(data_dir=d)
         for i in range(15):
             trainer.record_pair(prompt=f"P{i}", chosen=f"C{i}", rejected=f"R{i}")
         result = await trainer.train_nightly()
         # Will be "skipped_no_mlx" since MLX isn't available in container
         assert result["status"] in ("completed", "skipped_no_mlx")
         assert result["pairs_used"] == 15
+        # Verify pairs marked as used
+        stats = trainer.get_stats()
+        assert stats["unused_pairs"] == 0
+        shutil.rmtree(d, ignore_errors=True)
 
 
 class TestDPOSchedulerWiring:
@@ -204,7 +213,7 @@ class TestModuleCardBuilder:
         assert len(card["rows"]) >= 4
 
     def test_pdv_card(self):
-        card = self._build("pdv", {
+        card = self._build("pdv_prijava", {
             "pretporez": 5000, "obveza": 8000, "razlika": 3000,
         })
         assert card["type"] == "tax"
@@ -218,7 +227,7 @@ class TestModuleCardBuilder:
         assert any("18%" in r["value"] for r in card["rows"])
 
     def test_putni_nalog_card(self):
-        card = self._build("putni_nalog", {
+        card = self._build("putni_nalozi", {
             "dnevnice": 53.08, "km_naknada": 120, "ukupno": 173.08,
         })
         assert card["type"] == "travel"
@@ -234,13 +243,28 @@ class TestModuleCardBuilder:
         assert card["items"][1]["urgent"]  # 2 days
 
     def test_bank_card(self):
-        card = self._build("bank", {"transactions": [
+        card = self._build("bank_parser", {"transactions": [
             {"datum": "2026-01-15", "opis": "Plaćanje računa", "iznos": -500},
             {"datum": "2026-01-16", "opis": "Uplata", "iznos": 3000},
         ], "count": 2})
         assert card["type"] == "table"
         assert len(card["rows_table"]) == 2
         assert card["headers"] == ["Datum", "Opis", "Iznos"]
+
+    def test_joppd_card(self):
+        card = self._build("joppd", {
+            "tip": "plaća", "mjesec": "2026-01", "status": "generirano",
+        })
+        assert card is not None
+        assert card["type"] == "generic"
+        assert len(card["rows"]) >= 3
+
+    def test_gfi_card(self):
+        card = self._build("gfi_xml", {
+            "godina": 2025, "tip": "bilanca", "status": "generirano",
+        })
+        assert card is not None
+        assert card["type"] == "generic"
 
     def test_generic_card(self):
         card = self._build("amortizacija", {

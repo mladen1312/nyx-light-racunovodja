@@ -104,10 +104,15 @@ class NightlyDPOTrainer:
     def collect_unused_pairs(self, limit=500):
         conn = sqlite3.connect(str(self.db_path))
         rows = conn.execute(
-            "SELECT prompt,chosen,rejected,client_id,module,correction_type,date FROM preference_pairs WHERE used_in_run IS NULL ORDER BY date DESC LIMIT ?",
+            "SELECT id,prompt,chosen,rejected,client_id,module,correction_type,date FROM preference_pairs WHERE used_in_run IS NULL ORDER BY date DESC LIMIT ?",
             (limit,)).fetchall()
         conn.close()
-        return [PreferencePair(prompt=r[0],chosen=r[1],rejected=r[2],client_id=r[3],module=r[4],correction_type=r[5],timestamp=r[6]) for r in rows]
+        pairs = []
+        for r in rows:
+            p = PreferencePair(prompt=r[1],chosen=r[2],rejected=r[3],client_id=r[4],module=r[5],correction_type=r[6],timestamp=r[7])
+            p._row_id = r[0]  # Attach row ID for marking
+            pairs.append(p)
+        return pairs
 
     def export_dataset(self, pairs):
         filename = f"dpo_{date.today().isoformat()}_{int(time.time())}.jsonl"
@@ -120,6 +125,20 @@ class NightlyDPOTrainer:
                           f, ensure_ascii=False)
                 f.write("\n")
         return str(filepath)
+
+    def _mark_pairs_used(self, pairs, run_id: str):
+        """Mark specific pairs as used in a training run."""
+        row_ids = [getattr(p, '_row_id', None) for p in pairs]
+        row_ids = [r for r in row_ids if r is not None]
+        if not row_ids:
+            return
+        conn = sqlite3.connect(str(self.db_path))
+        placeholders = ",".join("?" * len(row_ids))
+        conn.execute(
+            f"UPDATE preference_pairs SET used_in_run=? WHERE id IN ({placeholders})",
+            [run_id] + row_ids)
+        conn.commit()
+        conn.close()
 
     async def train_nightly(self):
         pairs = self.collect_unused_pairs(self.MAX_PAIRS_PER_RUN)
@@ -146,10 +165,12 @@ class NightlyDPOTrainer:
             status = "skipped_no_mlx"
             error = str(e)
 
+        # Mark ONLY the exported pairs as used (not all unused — race safe)
+        self._mark_pairs_used(pairs, run_id)
+
         conn = sqlite3.connect(str(self.db_path))
         conn.execute("INSERT INTO training_runs (run_id,date,pairs_count,duration_seconds,loss_start,loss_end,lora_path,status,error) VALUES (?,?,?,?,?,?,?,?,?)",
             (run_id, date.today().isoformat(), len(pairs), duration, 0, 0, str(lora_output), status, error))
-        conn.execute("UPDATE preference_pairs SET used_in_run=? WHERE used_in_run IS NULL", (run_id,))
         conn.commit()
         conn.close()
 

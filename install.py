@@ -249,14 +249,6 @@ def step_create_demo_users(vault):
     demo_users = [
         {"username": "vladimir.budija", "display": "Vladimir Budija", "role": UserRole.ADMIN,
          "password": "VBudija2026!Nyx"},
-        {"username": "ana.horvat", "display": "Ana Horvat", "role": UserRole.RACUNOVODA,
-         "password": "AnaHorvat2026!"},
-        {"username": "marko.babic", "display": "Marko Babić", "role": UserRole.RACUNOVODA,
-         "password": "MarkoBabic2026!"},
-        {"username": "iva.kovac", "display": "Iva Kovač", "role": UserRole.RACUNOVODA,
-         "password": "IvaKovac2026!"},
-        {"username": "pripravnik", "display": "Pripravnik", "role": UserRole.PRIPRAVNIK,
-         "password": "Pripravnik2026!"},
     ]
 
     for u in demo_users:
@@ -457,8 +449,8 @@ def print_summary():
 ║                                                              ║
 ║   🌐 Web UI:      http://nyx-studio.local:8420               ║
 ║   🔑 Super admin: mladen1312                                 ║
-║   👥 Demo users:  admin, ana.horvat, marko.babic,            ║
-║                   iva.kovac, pripravnik                      ║
+║   👤 Admin:       vladimir.budija                            ║
+║   👥 Djelatnici:  admin dodaje putem Web UI ili Python CLI    ║
 ║                                                              ║
 ║   📁 Podaci:      {DATA_DIR:<40s}║
 ║   📋 Logovi:      {LOG_DIR:<40s}║

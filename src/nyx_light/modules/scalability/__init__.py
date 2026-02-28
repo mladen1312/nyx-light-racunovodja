@@ -234,20 +234,20 @@ class HardwareProfile:
 
 # Predefinirani profili
 HARDWARE_PROFILES = {
-    "mac_studio_m5_192": HardwareProfile(
-        "Mac Studio M5 Ultra 192GB", 192, 24, 192, 2.0),
-    "mac_studio_m5_128": HardwareProfile(
-        "Mac Studio M5 Ultra 128GB", 128, 24, 128, 1.0),
-    "mac_studio_m4_96": HardwareProfile(
-        "Mac Studio M4 Max 96GB", 96, 16, 96, 1.0),
-    "mac_mini_m4_64": HardwareProfile(
-        "Mac Mini M4 Pro 64GB", 64, 14, 64, 0.5),
-    "mac_mini_m4_32": HardwareProfile(
-        "Mac Mini M4 32GB", 32, 10, 32, 0.5),
+    "target_192gb": HardwareProfile(
+        "Apple Silicon 192GB Unified Memory", 192, 24, 192, 2.0),
+    "target_128gb": HardwareProfile(
+        "Apple Silicon 128GB Unified Memory", 128, 24, 128, 1.0),
+    "target_96gb": HardwareProfile(
+        "Apple Silicon 96GB Unified Memory", 96, 16, 96, 1.0),
+    "target_64gb": HardwareProfile(
+        "Apple Silicon 64GB Unified Memory", 64, 14, 64, 0.5),
+    "target_32gb": HardwareProfile(
+        "Apple Silicon 32GB Unified Memory", 32, 10, 32, 0.5),
 }
 
 
-def capacity_report(profile_name: str = "mac_studio_m5_192") -> Dict[str, Any]:
+def capacity_report(profile_name: str = "target_192gb") -> Dict[str, Any]:
     """Generiraj izvještaj o kapacitetu za zadani hardver."""
     p = HARDWARE_PROFILES.get(profile_name)
     if not p:

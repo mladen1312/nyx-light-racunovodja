@@ -513,19 +513,19 @@ class TestScalability:
 
     def test_capacity_report_192gb(self):
         from nyx_light.modules.scalability import capacity_report
-        report = capacity_report("mac_studio_m5_192")
+        report = capacity_report("target_192gb")
         assert report["max_concurrent_users"] == 20
         assert report["sqlite_sufficient"] == True
 
     def test_capacity_report_64gb(self):
         from nyx_light.modules.scalability import capacity_report
-        report = capacity_report("mac_mini_m4_64")
+        report = capacity_report("target_64gb")
         assert report["max_concurrent_users"] == 5
 
     def test_personnel_analysis(self):
         """AI smanjuje potrebu za zaposlenicima."""
         from nyx_light.modules.scalability import capacity_report
-        report = capacity_report("mac_studio_m5_192")
+        report = capacity_report("target_192gb")
         analysis = report["treba_li_vise_zaposlenika"]
         assert "NE" in analysis["odgovor"]
         assert analysis["s_ai_sustavom"]["klijenti_po_racunovodji"] > \

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nyx-light-racunovodja"
-version = "2.0.0"
-description = "Privatni ekspertni AI sustav za računovodstvo i knjigovodstvo RH — 36 modula, dvosmjerna ERP integracija (CPP/Synesis)"
+version = "3.1.0"
+description = "Privatni ekspertni AI sustav za računovodstvo i knjigovodstvo RH — 47 modula, 138 API endpointa, 21 stranica Web UI, dvosmjerna ERP integracija (CPP/Synesis)"
 authors = [{name = "Dr. Mladen Mešter", email = "mladen@nexellum.com"}]
 requires-python = ">=3.11"
 license = {text = "Proprietary"}

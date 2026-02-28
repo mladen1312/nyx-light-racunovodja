@@ -56,6 +56,35 @@ clean:  ## Očisti cache i temp datoteke
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	rm -rf .pytest_cache .ruff_cache .mypy_cache
+	rm -f data/nyx.db-shm data/nyx.db-wal
+
+test-quick:  ## Brzi testovi (bez API e2e)
+	PYTHONPATH=src pytest tests/ --ignore=tests/test_api_e2e.py --ignore=tests/test_api_production.py -q
+
+test-sprint:  ## Samo zadnji sprint testovi
+	PYTHONPATH=src pytest tests/test_sprint24_integration.py tests/test_sprint25_frontend.py -v
+
+stats:  ## Statistike projekta
+	@echo "=== Nyx Light v3.1 ===" && \
+	echo "Python source:" && find src/ -name "*.py" -not -path "*__pycache__*" | xargs wc -l | tail -1 && \
+	echo "Test LOC:" && find tests/ -name "*.py" | xargs wc -l | tail -1 && \
+	echo "Frontend:" && wc -l static/index.html && \
+	echo "Endpoints:" && python -c "from nyx_light.api.app import app; print(len(set(r.path for r in app.routes if hasattr(r,'path') and r.path.startswith('/api/'))))"
+
+endpoints:  ## Lista API endpointa
+	@PYTHONPATH=src python -c "from nyx_light.api.app import app; [print(f'{list(r.methods-{\"HEAD\",\"OPTIONS\"})[0]:6s} {r.path}') for r in sorted(app.routes, key=lambda r: getattr(r,'path','')) if hasattr(r,'methods') and r.path.startswith('/api/')]"
+
+status:  ## Status servisa
+	./start.sh status
+
+stop:  ## Zaustavi sve
+	./start.sh stop
+
+backup:  ## Kreiraj backup
+	./start.sh backup
+
+ingest-laws:  ## Učitaj zakone u RAG bazu
+	./start.sh ingest-laws
 
 first-boot:  ## Prvi setup (kreiranje direktorija, provjera hardvera)
 	PYTHONPATH=src python -m scripts.first_boot

@@ -22,17 +22,68 @@ Privatni AI sustav za računovodstvo i knjigovodstvo, dizajniran za računovodst
 
 ## Projekt u brojevima
 
-| Metrika | Vrijednost |
-|---------|-----------|
-| Source LOC (Python) | 40.361 |
-| WebUI LOC (React/JSX) | 1.050 |
-| Test LOC | 14.343 |
-| Alati (install.py, nyx-remote.py) | 663 |
-| **Ukupno LOC** | **56.417** |
-| Python source datoteka | 130 |
-| Test datoteka | 35 |
-| Operativnih modula | 44 |
-| Testova | 1.200+ |
+
+## Arhitektura
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     WEB UI (21 stranica)                     │
+│  Chat │ Kontiranje │ Banka │ Blagajna │ Plaće │ PDV │ GFI   │
+└──────────────────────┬───────────────────────────────────────┘
+                       │ WebSocket + REST API (138 endpointa)
+┌──────────────────────▼───────────────────────────────────────┐
+│                    FastAPI Server (:7860)                     │
+│  ┌──────────┐  ┌──────────────┐  ┌─────────────────────┐    │
+│  │  Router   │→│ModuleExecutor│→│ 47 Module Handlers   │    │
+│  │(keywords) │  │  (bridge)    │  │ blagajna, kontiranje│    │
+│  └──────────┘  └──────┬───────┘  │ place, pdv, gfi...  │    │
+│                       │          └─────────────────────┘    │
+│  ┌──────────┐  ┌──────▼───────┐  ┌─────────────────────┐    │
+│  │  Memory   │  │  ChatBridge  │  │   RAG (zakoni RH)   │    │
+│  │L0-L2+DPO │  │  (LLM proxy) │  │  Time-Aware Search  │    │
+│  └──────────┘  └──────┬───────┘  └─────────────────────┘    │
+└───────────────────────┼──────────────────────────────────────┘
+                        │ OpenAI-compatible API
+┌───────────────────────▼──────────────────────────────────────┐
+│              vllm-mlx Server (:8080)                         │
+│  Qwen3-235B-A22B (4-bit) — 192 GB Apple Silicon UMA         │
+│  Continuous Batching │ PagedAttention │ 15 concurrent users  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Tok obrade upita:**
+1. Korisnik upisuje "Kontira nabavu uredskog materijala 1.250 EUR" u chat
+2. **Router** detektira intent: `kontiranje` (85% confidence), entiteti: `iznos=1250`
+3. **ModuleExecutor** poziva `KontiranjeEngine.suggest_konto()` → D:4010/P:2200 
+4. **ChatBridge** šalje LLM-u kontekst s rezultatom modula
+5. LLM generira objašnjenje: "Uredski materijal se knjiži na konto 4010..."
+6. **Memory L2** pamti: "Klijent X → uredski materijal → konto 4010"
+
+## Web UI — 21 stranica
+
+| Sekcija | Stranica | Opis |
+|---------|----------|------|
+| **Rad** | 💬 Chat | AI asistent s WebSocket streamingom |
+| | 📋 Odobrenja | HITL — odobri/odbij AI prijedloge |
+| | 📒 Knjiženja | Pregled svih knjiženja |
+| | 📤 Upload | Upload dokumenata (PDF, slike, CSV) |
+| **Moduli** | 💰 Plaće | Obračun bruto→neto, MIO, porez |
+| | 🏭 Amortizacija | Linearna/ubrzana, grupe 1-5 |
+| | 🏦 Banka | MT940/CSV parser (Erste/Zaba/PBZ) |
+| | 📝 Kontiranje | AI prijedlog konta + alternativni |
+| | 💵 Blagajna | Validacija naloga, limit 10K EUR |
+| | 🚗 Putni nalozi | Dnevnice + km za 8 zemalja |
+| | 🧾 PDV | PP-PDV obrazac generator |
+| | 📑 Porez dobit | PD obrazac (10%/18%) |
+| | 📄 JOPPD | XML za ePorezna |
+| | 📊 GFI | Bilanca + RDG za FINA-u |
+| | 🔄 IOS | Usklađivanje obrazaca |
+| | 📨 E-račun | UBL/CII/ZUGFeRD validacija |
+| **Izvještaji** | 📊 Dashboard | KPI, grafovi, statistike |
+| | 📅 Rokovi | Porezni kalendar s notifikacijama |
+| | 🏢 Klijenti | Registar klijenata |
+| **Sustav** | 💾 Export | CPP/Synesis XML izvoz |
+| | ⚙️ Status | RAM, LLM, WebSocket monitoring |
 
 ## RAG Baza zakona
 
@@ -301,7 +352,7 @@ M5 Max i M5 Ultra najavljeni su za prvu polovicu 2026. Očekuju se iste ili već
 python -m pytest tests/ -v
 ```
 
-35 test datoteka, **1.200+ testova** (14.343 LOC testnog koda).
+37 test datoteka, **1.271+ testova** (14.793 LOC testnog koda).
 
 ## Razvoj
 
@@ -325,4 +376,4 @@ Kreator: **Mladen Mešter**
 
 ---
 
-*Nyx Light — Računovođa v3.0 • 56.417 LOC • 130 modula • Veljača 2026.*
+*Nyx Light — Računovođa v3.1 • 58.563 LOC • 47 modula • 138 endpointa • Veljača 2026.*

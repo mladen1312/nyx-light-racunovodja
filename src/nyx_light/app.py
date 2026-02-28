@@ -477,11 +477,21 @@ class NyxLightApp:
     ) -> Dict[str, Any]:
         """Pripremi PD obrazac za klijenta."""
         client = self.registry.get(client_id)
+        uv = uvecanja or {}
+        um = umanjenja or {}
         pd = self.porez_dobit.calculate(
-            godina, ukupni_prihodi, ukupni_rashodi,
-            uvecanja, umanjenja, predujmovi,
-            oib=client.oib if client else "",
-            naziv=client.naziv if client else "",
+            prihodi=ukupni_prihodi, rashodi=ukupni_rashodi,
+            reprezentacija=uv.get("reprezentacija_50pct", uv.get("reprezentacija", 0)) * 2 if "reprezentacija_50pct" in uv else uv.get("reprezentacija", 0),
+            kazne=uv.get("kazne", 0),
+            amortizacija_iznad=uv.get("amortizacija_iznad", 0),
+            osobni_auto_30=uv.get("osobni_auto_30", 0),
+            darovanja_iznad=uv.get("darovanja_iznad", 0),
+            otpis_nepriznati=uv.get("otpis_nepriznati", 0),
+            ostala_povecanja=uv.get("ostalo", 0),
+            dividende=um.get("dividende", 0),
+            reinvestirana_dobit=um.get("reinvestirana_dobit", 0),
+            ostala_smanjenja=um.get("ostalo", 0),
+            placeni_predujmovi=predujmovi,
         )
         return self.porez_dobit.to_dict(pd)
 

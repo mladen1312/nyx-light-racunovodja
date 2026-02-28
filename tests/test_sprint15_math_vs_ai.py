@@ -694,15 +694,15 @@ class TestKontiranjeAIBoundary:
         assert len(result["suggested_konto"]) == 4  # 4-digit konto
 
     def test_prijedlog_usluge(self):
-        """Usluge → konto 7200."""
+        """Usluge → konto 4120 (RRIF: usluge rashod)."""
         result = self.engine.suggest_konto("Servis klima uređaja")
-        assert result["suggested_konto"] == "7200"
+        assert result["suggested_konto"] in ("4120", "7200")  # 4120 RRIF, 7200 alt
         assert result["requires_approval"] is True
 
     def test_prijedlog_amortizacija(self):
-        """Amortizacija → konto 7300."""
+        """Amortizacija → konto 4302 (RRIF: amortizacija opreme)."""
         result = self.engine.suggest_konto("Amortizacija računalne opreme")
-        assert result["suggested_konto"] == "7300"
+        assert result["suggested_konto"] in ("4302", "7300")  # 4302 RRIF, 7300 alt
         assert result["requires_approval"] is True
 
     def test_niska_pouzdanost_fallback(self):

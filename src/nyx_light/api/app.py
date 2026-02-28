@@ -88,8 +88,10 @@ class AppState:
         self.llm: Optional[NyxLightLLM] = None
         self.overseer: Optional[AccountingOverseer] = None
         self.sessions: Optional[SessionManager] = None
+        self.session_mgr: Optional[SessionManager] = None
         self.monitor: Optional[SystemMonitor] = None
         self.backup: Optional[BackupManager] = None
+        self.llm_queue = None  # LLMRequestQueue
         self.start_time = datetime.now(timezone.utc)
         self.ws_connections: Dict[str, WebSocket] = {}
 
@@ -111,8 +113,17 @@ async def lifespan(app: FastAPI):
     state.chat_bridge = ChatBridge()
     state.overseer = AccountingOverseer()
     state.sessions = SessionManager()
+    state.session_mgr = state.sessions  # Alias
     state.monitor = SystemMonitor()
     state.backup = BackupManager()
+
+    # LLM Request Queue — max 3 concurrent, 10/min per user
+    try:
+        from nyx_light.llm.request_queue import LLMRequestQueue
+        state.llm_queue = LLMRequestQueue(max_concurrent=3, max_per_minute=10)
+        logger.info("LLM Request Queue: max 3 concurrent, 10/min rate limit")
+    except Exception as e:
+        logger.warning("LLM Queue not started: %s", e)
 
     # Start nightly scheduler in background
     try:
@@ -256,6 +267,7 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
         context.episodic_recent.append(f"Ranije: {ep.query} → {ep.response[:100]}")
 
     session_id = f"{user['user_id']}_{req.client_id or 'general'}"
+    user_id = user.get("user_id", user.get("username", "unknown"))
 
     # RAG search — relevantni zakoni
     try:
@@ -283,8 +295,24 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
     except Exception:
         pass
 
-    # Call LLM
-    response = await state.chat_bridge.chat(req.message, session_id, context)
+    # Call LLM — through request queue for fair scheduling
+    try:
+        if state.llm_queue:
+            response = await state.llm_queue.submit(
+                user_id,
+                state.chat_bridge.chat,
+                req.message, session_id, context,
+            )
+        else:
+            response = await state.chat_bridge.chat(req.message, session_id, context)
+    except Exception as e:
+        error_msg = str(e)
+        if "Previše zahtjeva" in error_msg or "rate" in error_msg.lower():
+            return {"content": f"⏳ {error_msg}", "rate_limited": True}
+        elif "preopterećen" in error_msg.lower() or "queue" in error_msg.lower():
+            return {"content": f"⏳ {error_msg}", "queue_full": True}
+        # Fallback — try direct call
+        response = await state.chat_bridge.chat(req.message, session_id, context)
 
     # Store in episodic memory
     state.memory.l1_episodic.store(
@@ -301,25 +329,72 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
         "model": response.model,
     }
 
-# WebSocket chat (streaming)
+# WebSocket chat (streaming) — s JWT autentikacijom
 @app.websocket("/api/ws/chat")
 async def ws_chat(ws: WebSocket):
+    # ── 1. Autentikacija ──
+    token = ws.query_params.get("token", "")
+    if not token:
+        # Provjeri i subprotocol header
+        token = ws.headers.get("sec-websocket-protocol", "")
+
+    user = None
+    if token and state.auth:
+        try:
+            user = state.auth.verify_token(token)
+        except Exception:
+            pass
+
+    if not user:
+        await ws.close(code=4001, reason="Niste prijavljeni")
+        return
+
     await ws.accept()
+    user_id = user.get("user_id", user.get("username", "unknown"))
+    session_id = f"ws_{user_id}"
+
+    # Track WebSocket connection
+    state.ws_connections[user_id] = ws
+    logger.info("WebSocket: %s spojen", user_id)
+
     try:
         while True:
             data = await ws.receive_json()
             msg = data.get("message", "")
-            session_id = data.get("session_id", "ws_default")
+            if not msg:
+                continue
 
-            # Stream response
+            # ── 2. Rate limit check ──
+            if hasattr(state, 'llm_queue') and state.llm_queue:
+                user_stats = state.llm_queue.get_user_stats(user_id)
+                if user_stats["rate_remaining"] <= 0:
+                    await ws.send_json({
+                        "type": "error",
+                        "content": f"Previše zahtjeva. Pokušajte za {int(user_stats['rate_reset_in'])}s."
+                    })
+                    continue
+
+            # ── 3. Stream response s per-user session ──
             full = ""
             async for token in state.chat_bridge.chat_stream(msg, session_id):
                 full += token
                 await ws.send_json({"type": "token", "content": token})
 
             await ws.send_json({"type": "done", "content": full})
+
+            # ── 4. Track u session manageru ──
+            if state.session_mgr:
+                state.session_mgr.record_message(
+                    state.session_mgr.get_session_by_user(user_id).session_id
+                    if state.session_mgr.get_session_by_user(user_id) else ""
+                )
+
     except WebSocketDisconnect:
-        pass
+        state.ws_connections.pop(user_id, None)
+        logger.info("WebSocket: %s odspojio se", user_id)
+    except Exception as e:
+        state.ws_connections.pop(user_id, None)
+        logger.error("WebSocket error %s: %s", user_id, e)
 
 # ═══════════════════════════════════════════
 # BOOKINGS & APPROVAL (HITL)
@@ -972,15 +1047,107 @@ async def generate_ios(request: Request, user=Depends(get_current_user)):
 async def validate_blagajna(request: Request, user=Depends(get_current_user)):
     data = await request.json()
     from nyx_light.modules.blagajna.validator import BlagajnaValidator
-    return BlagajnaValidator().validate(float(data.get("iznos", 0)), data.get("tip", "izdatak"))
+    bv = BlagajnaValidator()
+    if data.get("pocetno_stanje"):
+        bv.set_pocetno_stanje(float(data["pocetno_stanje"]))
+    return bv.validate_and_report(data)
+
+@app.post("/api/blagajna/dnevni-izvjestaj")
+async def blagajna_dnevni(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.blagajna.validator import BlagajnaValidator
+    bv = BlagajnaValidator()
+    # Process all nalozi for the day
+    nalozi = data.get("nalozi", [])
+    if data.get("pocetno_stanje"):
+        bv.set_pocetno_stanje(float(data["pocetno_stanje"]))
+    results = [bv.validate_and_report(n) for n in nalozi]
+    report = bv.dnevni_izvjestaj(data.get("datum", ""), float(data.get("pocetno_stanje", 0)))
+    return {"nalozi": results, "izvjestaj": {
+        "datum": report.datum, "pocetno": report.pocetno_stanje,
+        "uplate": report.ukupno_uplate, "isplate": report.ukupno_isplate,
+        "zavrsno": report.zavrsno_stanje, "br_uplatnica": report.broj_uplatnica,
+        "br_isplatnica": report.broj_isplatnica,
+    }}
+
+@app.post("/api/putni-nalog/calculate")
+async def calculate_putni_nalog(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.putni_nalozi.checker import PutniNalogChecker
+    pnc = PutniNalogChecker()
+    pn = pnc.calculate(data)
+    return pnc.to_dict(pn)
+
+@app.get("/api/putni-nalog/dnevnice")
+async def list_dnevnice(user=Depends(get_current_user)):
+    from nyx_light.modules.putni_nalozi.checker import PutniNalogChecker
+    return {"dnevnice": PutniNalogChecker().list_zemlje(), "km_naknada_eur": 0.40}
 
 @app.post("/api/putni-nalog/check")
 async def check_putni_nalog(request: Request, user=Depends(get_current_user)):
+    """Legacy endpoint — redirects to calculate."""
     data = await request.json()
     from nyx_light.modules.putni_nalozi.checker import PutniNalogChecker
-    return PutniNalogChecker().validate(
-        km=float(data.get("km", 0)), dnevnica=float(data.get("dnevnica", 0)),
-        reprezentacija=float(data.get("reprezentacija", 0)))
+    pnc = PutniNalogChecker()
+    pn = pnc.calculate(data)
+    return pnc.to_dict(pn)
+
+@app.post("/api/kontiranje/suggest")
+async def suggest_kontiranje(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.kontiranje.engine import KontiranjeEngine
+    engine = KontiranjeEngine()
+    # Try to get memory hint
+    memory_hint = None
+    if data.get("supplier_oib") and state.memory:
+        memory_hint = state.memory.get_kontiranje_hint(
+            data.get("client_id", ""), data.get("supplier_oib", ""))
+    result = engine.suggest_konto(
+        description=data.get("opis", ""),
+        tip_dokumenta=data.get("tip", "ulazni"),
+        client_id=data.get("client_id", ""),
+        supplier_oib=data.get("supplier_oib", ""),
+        supplier_name=data.get("supplier_name", data.get("dobavljac", "")),
+        iznos=float(data.get("iznos", 0)),
+        pdv_stopa=float(data.get("pdv_stopa", 25)),
+        memory_hint=memory_hint,
+    )
+    return {
+        "duguje": result.duguje_konto, "duguje_naziv": result.duguje_naziv,
+        "potrazuje": result.potrazuje_konto, "potrazuje_naziv": result.potrazuje_naziv,
+        "pdv_konto": result.pdv_konto, "pdv_iznos": result.pdv_iznos,
+        "confidence": result.confidence, "source": result.source,
+        "rule_id": result.rule_id, "napomena": result.napomena,
+        "alternativni": result.alternativni,
+        "requires_approval": result.requires_approval,
+    }
+
+@app.post("/api/kontiranje/batch")
+async def batch_kontiranje(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.kontiranje.engine import KontiranjeEngine
+    engine = KontiranjeEngine()
+    stavke = data.get("stavke", [])
+    results = engine.suggest_batch(stavke, data.get("client_id", ""))
+    return {"results": [
+        {"duguje": r.duguje_konto, "potrazuje": r.potrazuje_konto,
+         "confidence": r.confidence, "source": r.source, "napomena": r.napomena}
+        for r in results
+    ], "stats": engine.get_stats()}
+
+@app.post("/api/kontiranje/search")
+async def search_konta(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.kontiranje.engine import suggest_konto_by_keyword
+    return {"results": suggest_konto_by_keyword(data.get("keyword", ""), int(data.get("limit", 10)))}
+
+@app.get("/api/llm/queue-stats")
+async def llm_queue_stats(user=Depends(get_current_user)):
+    if state.llm_queue:
+        stats = state.llm_queue.get_stats()
+        user_stats = state.llm_queue.get_user_stats(user.get("user_id", ""))
+        return {"queue": stats, "user": user_stats}
+    return {"queue": {"status": "disabled"}, "user": {}}
 
 @app.post("/api/amortizacija/calculate")
 async def calculate_amortizacija(request: Request, user=Depends(get_current_user)):
@@ -1396,3 +1563,189 @@ async def kompenzacije_multilateral(data: dict, user=Depends(get_current_user)):
         return {"found": True, "sudionici": result.sudionici,
                 "ukupno": result.ukupno_kompenzirano, "lanac": result.lanac}
     return {"found": False}
+
+# ═══════════════════════════════════════════
+# BLAGAJNA ENDPOINTS
+# ═══════════════════════════════════════════
+
+@app.post("/api/blagajna/nalog")
+async def blagajna_nalog(request: Request, user=Depends(get_current_user)):
+    """Kreiraj blagajnički nalog."""
+    data = await request.json()
+    from nyx_light.modules.blagajna.validator import BlagajnaValidator
+    bv = BlagajnaValidator()
+    nalog = bv.kreiraj_nalog(
+        tip=data.get("tip", "isplatnica"),
+        iznos=float(data.get("iznos", 0)),
+        opis=data.get("opis", ""),
+        partner=data.get("partner", ""),
+        partner_oib=data.get("partner_oib", ""),
+        kategorija=data.get("kategorija", "ostalo"),
+        dokument_ref=data.get("dokument_ref", ""),
+    )
+    return {
+        "broj": nalog.redni_broj, "tip": nalog.tip, "iznos": nalog.iznos,
+        "konto_duguje": nalog.konto_duguje, "konto_potrazuje": nalog.konto_potrazuje,
+        "valid": len(nalog.validacijske_greske) == 0,
+        "greske": nalog.validacijske_greske, "upozorenja": nalog.upozorenja,
+        "saldo": bv.get_saldo(),
+    }
+
+@app.post("/api/blagajna/validate")
+async def blagajna_validate(request: Request, user=Depends(get_current_user)):
+    """Quick validacija blagajničke transakcije."""
+    data = await request.json()
+    from nyx_light.modules.blagajna.validator import BlagajnaValidator
+    bv = BlagajnaValidator()
+    return bv.validate_transaction(
+        iznos=float(data.get("iznos", 0)),
+        partner_oib=data.get("partner_oib", ""),
+    )
+
+# ═══════════════════════════════════════════
+# PUTNI NALOZI ENDPOINTS
+# ═══════════════════════════════════════════
+
+@app.post("/api/putni-nalog/create")
+async def putni_nalog_create(request: Request, user=Depends(get_current_user)):
+    """Kreiraj i obračunaj putni nalog."""
+    data = await request.json()
+    from nyx_light.modules.putni_nalozi.checker import PutniNaloziChecker
+    pnc = PutniNaloziChecker()
+    pn = pnc.kreiraj_putni_nalog(
+        zaposlenik=data.get("zaposlenik", ""),
+        odrediste=data.get("odrediste", ""),
+        svrha=data.get("svrha", ""),
+        datum_polaska=data.get("datum_polaska", ""),
+        vrijeme_polaska=data.get("vrijeme_polaska", "08:00"),
+        datum_povratka=data.get("datum_povratka", ""),
+        vrijeme_povratka=data.get("vrijeme_povratka", "17:00"),
+        km_ukupno=float(data.get("km_ukupno", 0)),
+        prijevozno_sredstvo=data.get("prijevozno_sredstvo", "osobni_auto"),
+        zemlja=data.get("zemlja", "rh"),
+        nocenja=int(data.get("nocenja", 0)),
+        troskovi=data.get("troskovi", []),
+        akontacija=float(data.get("akontacija", 0)),
+        relacija=data.get("relacija", ""),
+    )
+    return pnc.to_dict(pn)
+
+@app.get("/api/putni-nalog/dnevnice")
+async def putni_nalog_dnevnice(zemlja: str = "rh", user=Depends(get_current_user)):
+    """Dohvati dnevnice za zemlju."""
+    from nyx_light.modules.putni_nalozi.checker import PutniNaloziChecker
+    return PutniNaloziChecker().get_dnevnica_info(zemlja)
+
+@app.get("/api/putni-nalog/zemlje")
+async def putni_nalog_zemlje(user=Depends(get_current_user)):
+    """Lista svih zemalja s dnevnicama."""
+    from nyx_light.modules.putni_nalozi.checker import PutniNaloziChecker
+    return {"zemlje": PutniNaloziChecker().list_zemlje()}
+
+# ═══════════════════════════════════════════
+# POREZ NA DOBIT ENDPOINTS
+# ═══════════════════════════════════════════
+
+@app.post("/api/porez-dobit/calculate")
+async def porez_dobit_calc(request: Request, user=Depends(get_current_user)):
+    """Izračunaj PD obrazac."""
+    data = await request.json()
+    from nyx_light.modules.porez_dobit import PorezNaDobitEngine
+    engine = PorezNaDobitEngine()
+    pd = engine.calculate(
+        prihodi=float(data.get("prihodi", 0)),
+        rashodi=float(data.get("rashodi", 0)),
+        reprezentacija=float(data.get("reprezentacija", 0)),
+        amortizacija_iznad=float(data.get("amortizacija_iznad", 0)),
+        kazne=float(data.get("kazne", 0)),
+        osobni_auto_30=float(data.get("osobni_auto_30", 0)),
+        darovanja_iznad=float(data.get("darovanja_iznad", 0)),
+        otpis_nepriznati=float(data.get("otpis_nepriznati", 0)),
+        dividende=float(data.get("dividende", 0)),
+        reinvestirana_dobit=float(data.get("reinvestirana_dobit", 0)),
+        preneseni_gubitak=float(data.get("preneseni_gubitak", 0)),
+        placeni_predujmovi=float(data.get("placeni_predujmovi", 0)),
+    )
+    return engine.to_dict(pd)
+
+# ═══════════════════════════════════════════
+# KONTIRANJE ENDPOINTS
+# ═══════════════════════════════════════════
+
+@app.post("/api/kontiranje/suggest")
+async def kontiranje_suggest(request: Request, user=Depends(get_current_user)):
+    """AI prijedlog kontiranja."""
+    data = await request.json()
+    from nyx_light.modules.kontiranje.engine import KontiranjeEngine
+    engine = KontiranjeEngine()
+    prijedlog = engine.suggest_konto(
+        description=data.get("opis", ""),
+        tip_dokumenta=data.get("tip", "ulazni"),
+        supplier_name=data.get("dobavljac", ""),
+        iznos=float(data.get("iznos", 0)),
+        pdv_stopa=float(data.get("pdv_stopa", 25)),
+    )
+    return {
+        "duguje": prijedlog.duguje_konto, "duguje_naziv": prijedlog.duguje_naziv,
+        "potrazuje": prijedlog.potrazuje_konto, "potrazuje_naziv": prijedlog.potrazuje_naziv,
+        "pdv_konto": prijedlog.pdv_konto, "pdv_iznos": prijedlog.pdv_iznos,
+        "confidence": prijedlog.confidence, "source": prijedlog.source,
+        "rule_id": prijedlog.rule_id, "napomena": prijedlog.napomena,
+        "alternativni": prijedlog.alternativni,
+        "requires_approval": prijedlog.requires_approval,
+    }
+
+@app.get("/api/kontiranje/search")
+async def kontiranje_search(q: str = "", user=Depends(get_current_user)):
+    """Pretraži kontni plan."""
+    from nyx_light.modules.kontiranje.engine import suggest_konto_by_keyword
+    return {"results": suggest_konto_by_keyword(q, limit=10)}
+
+# ═══════════════════════════════════════════
+# GFI ENDPOINTS
+# ═══════════════════════════════════════════
+
+@app.post("/api/gfi/bilanca")
+async def gfi_bilanca(request: Request, user=Depends(get_current_user)):
+    """Generiraj bilancu."""
+    data = await request.json()
+    from nyx_light.modules.gfi_xml import GFIXMLGenerator
+    gen = GFIXMLGenerator()
+    izvj = gen.generate_bilanca(
+        data=data.get("aop", {}),
+        prethodno=data.get("prethodno", {}),
+        oib=data.get("oib", ""), naziv=data.get("naziv", ""),
+        godina=int(data.get("godina", 0)),
+    )
+    return {"izvjestaj": gen.to_dict(izvj), "xml": gen.to_xml(izvj)}
+
+@app.post("/api/gfi/rdg")
+async def gfi_rdg(request: Request, user=Depends(get_current_user)):
+    """Generiraj RDG."""
+    data = await request.json()
+    from nyx_light.modules.gfi_xml import GFIXMLGenerator
+    gen = GFIXMLGenerator()
+    izvj = gen.generate_rdg(
+        data=data.get("aop", {}),
+        prethodno=data.get("prethodno", {}),
+        oib=data.get("oib", ""), naziv=data.get("naziv", ""),
+    )
+    return {"izvjestaj": gen.to_dict(izvj), "xml": gen.to_xml(izvj)}
+
+# ═══════════════════════════════════════════
+# LLM QUEUE STATS (Admin)
+# ═══════════════════════════════════════════
+
+@app.get("/api/queue/stats")
+async def queue_stats(user=Depends(get_current_user)):
+    """LLM request queue statistike."""
+    if state.llm_queue:
+        return state.llm_queue.get_stats()
+    return {"status": "queue_not_active", "note": "Direct LLM calls (no queueing)"}
+
+@app.get("/api/queue/user/{user_id}")
+async def queue_user_stats(user_id: str, user=Depends(get_current_user)):
+    """Per-user queue statistike."""
+    if state.llm_queue:
+        return state.llm_queue.get_user_stats(user_id)
+    return {"status": "queue_not_active"}

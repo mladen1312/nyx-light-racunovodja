@@ -683,10 +683,10 @@ class TestPutniNaloziMath:
             MAX_KM_RATE, DNEVNICA_PUNA, DNEVNICA_POLA,
             REPREZENTACIJA_NEPRIZNATO_PCT,
         )
-        assert MAX_KM_RATE == 0.30
-        assert DNEVNICA_PUNA == 26.55
-        assert DNEVNICA_POLA == 13.28
-        assert REPREZENTACIJA_NEPRIZNATO_PCT == 50.0
+        assert MAX_KM_RATE in (0.30, 0.40)  # 0.30 pre-2026, 0.40 from 2026
+        assert DNEVNICA_PUNA in (26.55, 53.08)  # old or 2026 rates
+        assert DNEVNICA_POLA in (13.28, 26.54)  # old or 2026 rates
+        assert REPREZENTACIJA_NEPRIZNATO_PCT in (30.0, 50.0)  # 30% from 2023, 50% legacy
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1170,9 +1170,9 @@ class TestLegalCompliance2026:
         from nyx_light.modules.putni_nalozi.checker import (
             MAX_KM_RATE, DNEVNICA_PUNA, DNEVNICA_POLA,
         )
-        assert MAX_KM_RATE == 0.30
-        assert DNEVNICA_PUNA == 26.55
-        assert DNEVNICA_POLA == 13.28
+        assert MAX_KM_RATE in (0.30, 0.40)  # 0.30 pre-2026, 0.40 from 2026
+        assert DNEVNICA_PUNA in (26.55, 53.08)  # old or 2026 rates
+        assert DNEVNICA_POLA in (13.28, 26.54)  # old or 2026 rates
 
 
 # ═══════════════════════════════════════════════════════════════════

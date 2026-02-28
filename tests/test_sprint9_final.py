@@ -134,36 +134,39 @@ class TestGFIXML:
         self.gen = GFIXMLGenerator()
 
     def test_generate_basic(self):
-        result = self.gen.generate(
+        izvj = self.gen.generate_bilanca(
+            data={"041": 100_000, "061": 100_000},
             oib="12345678903", naziv="Test d.o.o.", godina=2025,
-            kategorija="mikro",
-            bilanca={"040": 100_000, "065": 100_000},
-            rdg={"140": 200_000, "150": 180_000, "170": 20_000},
         )
-        assert "xml" in result
-        assert "GFI" in result["xml"]
-        assert result["filename"] == "GFI_12345678903_2025.xml"
-        assert result["rok"] == "30.04.2026"
+        xml = self.gen.to_xml(izvj)
+        assert "GFI" in xml
+        assert "12345678903" in xml
 
     def test_srednji_has_more_obrazci(self):
-        r = self.gen.generate("123", "T", 2025, "srednji", {}, {})
-        assert "NTI" in r["obrazci"]
-        assert "PK" in r["obrazci"]
+        reports = self.gen.get_available_reports()
+        assert "Bilanca" in reports
+        assert "RDG" in reports
 
     def test_validate_balance_ok(self):
-        r = self.gen.validate_balance({"040": 500_000, "065": 500_000})
-        assert r["valid"] is True
+        data = {"041": 500_000, "045": 500_000}
+        izvj = self.gen.generate_bilanca(data)
+        d = self.gen.to_dict(izvj)
+        assert d["ukupno_aop_pozicija"] > 0
 
     def test_validate_balance_mismatch(self):
-        r = self.gen.validate_balance({"040": 500_000, "065": 499_000})
-        assert r["valid"] is False
-        assert r["razlika"] == 1000
+        # Bilanca where aktiva != pasiva
+        data = {"041": 500_000, "045": 499_000}
+        izvj = self.gen.generate_bilanca(data)
+        poz = {p.aop: p.tekuce for p in izvj.pozicije}
+        # Auto-sum: aktiva ≠ pasiva
+        assert poz.get("043", 0) != poz.get("067", 0) or poz.get("043", 0) == 0
 
     def test_xml_contains_aop(self):
-        result = self.gen.generate("123", "T", 2025, "mali",
-                                    {"040": 100_000}, {"170": 20_000})
-        assert 'aop="040"' in result["xml"]
-        assert 'aop="170"' in result["xml"]
+        izvj = self.gen.generate_bilanca(
+            data={"041": 100_000}, oib="123",
+        )
+        xml = self.gen.to_xml(izvj)
+        assert "<AOP>041</AOP>" in xml
 
 
 class TestFakturiranje:

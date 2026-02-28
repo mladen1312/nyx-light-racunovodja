@@ -9,7 +9,7 @@ class TestBankStatementParser:
         self.parser = BankStatementParser()
 
     def test_detect_bank_pbz(self):
-        assert self.parser.detect_bank("HR1723600001101234567") == "PBZ"
+        assert self.parser.detect_bank("HR1724840081101234567") == "PBZ"
 
     def test_detect_bank_erste(self):
         assert self.parser.detect_bank("HR2324020061100123456") == "Erste"

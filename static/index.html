@@ -114,6 +114,13 @@ body.light .chat-msg .bubble{border-color:#e2e8f0}
 @media(max-width:600px){.payroll-form{grid-template-columns:1fr}}
 .payroll-form label{font-size:13px;color:var(--text2);margin-bottom:4px}
 .payroll-form input,.payroll-form select{padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:14px}
+.stat-card{background:var(--bg3);padding:16px;border-radius:var(--radius);text-align:center}
+.stat-label{font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.stat-value{font-size:22px;font-weight:700;color:var(--text)}
+.data-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+.data-table th{background:var(--bg3);padding:8px 12px;text-align:left;color:var(--text2);font-weight:600;border-bottom:2px solid var(--border)}
+.data-table td{padding:8px 12px;border-bottom:1px solid var(--border)}
+.data-table tr:hover{background:var(--bg3)}
 .payroll-result{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-top:20px}
 .payroll-result .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
 .payroll-result .row.total{font-weight:700;font-size:16px;border-bottom:2px solid var(--accent)}
@@ -136,7 +143,6 @@ body.light .chat-msg .bubble{border-color:#e2e8f0}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -177,6 +183,16 @@ body.light .chat-msg .bubble{border-color:#e2e8f0}
     <div class="section-title">Moduli</div>
     <div class="nav-item" data-page="payroll" onclick="showPage('payroll')">💰 Plaće</div>
     <div class="nav-item" data-page="amort" onclick="showPage('amort')">🏭 Amortizacija</div>
+    <div class="nav-item" data-page="bank" onclick="showPage('bank')">🏦 Banka</div>
+    <div class="nav-item" data-page="kontiranje" onclick="showPage('kontiranje')">📝 Kontiranje</div>
+    <div class="nav-item" data-page="blagajna" onclick="showPage('blagajna')">💵 Blagajna</div>
+    <div class="nav-item" data-page="putni" onclick="showPage('putni')">🚗 Putni nalozi</div>
+    <div class="nav-item" data-page="pdv" onclick="showPage('pdv')">🧾 PDV</div>
+    <div class="nav-item" data-page="porez" onclick="showPage('porez')">📑 Porez dobit</div>
+    <div class="nav-item" data-page="joppd" onclick="showPage('joppd')">📄 JOPPD</div>
+    <div class="nav-item" data-page="gfi" onclick="showPage('gfi')">📊 GFI</div>
+    <div class="nav-item" data-page="ios" onclick="showPage('ios')">🔄 IOS</div>
+    <div class="nav-item" data-page="eracun" onclick="showPage('eracun')">📨 E-račun</div>
 
     <div class="section-title">Izvještaji</div>
     <div class="nav-item" data-page="dashboard" onclick="showPage('dashboard')">📊 Dashboard</div>
@@ -363,6 +379,152 @@ body.light .chat-msg .bubble{border-color:#e2e8f0}
       <div class="payroll-result" id="amortResult" style="display:none"></div>
     </div>
 
+    <!-- BANK PAGE -->
+    <div class="page" id="page-bank">
+      <div class="page-header"><h2>🏦 Bankovni izvodi</h2><p>MT940/CSV parser — Erste, Zaba, PBZ</p></div>
+      <div class="payroll-form" style="max-width:600px">
+        <div><label>Banka</label><select id="bankSelect"><option value="erste">Erste</option><option value="zaba">Zaba</option><option value="pbz">PBZ</option><option value="auto">Auto-detekcija</option></select></div>
+        <div><label>Datoteka izvoda</label><input type="file" id="bankFile" accept=".csv,.mt940,.txt,.sta"></div>
+        <div><label>Klijent</label><select id="bankClient" class="client-select"></select></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="parseBank()">Parsiraj izvod</button></div>
+      <div class="payroll-result" id="bankResult" style="display:none"></div>
+    </div>
+
+    <!-- KONTIRANJE PAGE -->
+    <div class="page" id="page-kontiranje">
+      <div class="page-header"><h2>📝 Kontiranje</h2><p>AI prijedlog konta i temeljnica</p></div>
+      <div class="payroll-form" style="max-width:700px">
+        <div><label>Tip dokumenta</label><select id="kontTip"><option value="ulazni_racun">Ulazni račun</option><option value="izlazni_racun">Izlazni račun</option><option value="banka_uplata">Banka — uplata</option><option value="banka_isplata">Banka — isplata</option><option value="blagajna">Blagajna</option><option value="putni_nalog">Putni nalog</option><option value="placa">Plaća</option><option value="amortizacija">Amortizacija</option></select></div>
+        <div><label>Opis</label><input type="text" id="kontOpis" placeholder="npr. Uredski materijal, gorivo, telefon..."></div>
+        <div><label>Dobavljač / Partner</label><input type="text" id="kontPartner" placeholder="Naziv ili OIB"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label>Iznos (EUR)</label><input type="number" id="kontIznos" value="1000" step="0.01"></div>
+          <div><label>PDV stopa (%)</label><select id="kontPDV"><option value="25">25%</option><option value="13">13%</option><option value="5">5%</option><option value="0">0% (oslobođeno)</option></select></div>
+        </div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="suggestKonto()">Predloži kontiranje</button></div>
+      <div class="payroll-result" id="kontResult" style="display:none"></div>
+    </div>
+
+    <!-- BLAGAJNA PAGE -->
+    <div class="page" id="page-blagajna">
+      <div class="page-header"><h2>💵 Blagajna</h2><p>Blagajnički nalozi — limit 10.000 EUR</p></div>
+      <div class="payroll-form" style="max-width:600px">
+        <div><label>Tip</label><select id="blagTip"><option value="isplata">Isplata</option><option value="uplata">Uplata</option></select></div>
+        <div><label>Iznos (EUR)</label><input type="number" id="blagIznos" value="500" step="0.01"></div>
+        <div><label>Opis</label><input type="text" id="blagOpis" placeholder="Svrha isplate/uplate"></div>
+        <div><label>Partner OIB</label><input type="text" id="blagOIB" placeholder="11 znamenaka"></div>
+        <div><label>Početno stanje (EUR)</label><input type="number" id="blagPocetno" value="0" step="0.01"></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="validateBlagajna()">Provjeri nalog</button></div>
+      <div class="payroll-result" id="blagResult" style="display:none"></div>
+    </div>
+
+    <!-- PUTNI NALOZI PAGE -->
+    <div class="page" id="page-putni">
+      <div class="page-header"><h2>🚗 Putni nalozi</h2><p>Obračun dnevnica i km-naknade (0,40 EUR/km)</p></div>
+      <div class="payroll-form" style="max-width:700px">
+        <div><label>Zaposlenik</label><input type="text" id="pnZaposlenik" placeholder="Ime i prezime"></div>
+        <div><label>Odredište</label><input type="text" id="pnOdrediste" placeholder="npr. Split"></div>
+        <div><label>Svrha puta</label><input type="text" id="pnSvrha" placeholder="Poslovni razlog"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label>Datum polaska</label><input type="date" id="pnDatumOd"></div>
+          <div><label>Datum povratka</label><input type="date" id="pnDatumDo"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label>Kilometri</label><input type="number" id="pnKm" value="0"></div>
+          <div><label>Zemlja</label><select id="pnZemlja"><option value="rh">Hrvatska</option><option value="de">Njemačka</option><option value="at">Austrija</option><option value="si">Slovenija</option><option value="it">Italija</option><option value="hu">Mađarska</option><option value="rs">Srbija</option><option value="ba">BiH</option></select></div>
+        </div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="calcPutni()">Obračunaj</button></div>
+      <div class="payroll-result" id="putniResult" style="display:none"></div>
+    </div>
+
+    <!-- PDV PAGE -->
+    <div class="page" id="page-pdv">
+      <div class="page-header"><h2>🧾 PDV prijava</h2><p>PP-PDV obrazac — rok do 20. u mjesecu</p></div>
+      <div class="payroll-form" style="max-width:600px">
+        <div><label>Klijent</label><select id="pdvClient" class="client-select"></select></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label>Mjesec</label><select id="pdvMjesec"><option value="1">Siječanj</option><option value="2">Veljača</option><option value="3">Ožujak</option><option value="4">Travanj</option><option value="5">Svibanj</option><option value="6">Lipanj</option><option value="7">Srpanj</option><option value="8">Kolovoz</option><option value="9">Rujan</option><option value="10">Listopad</option><option value="11">Studeni</option><option value="12">Prosinac</option></select></div>
+          <div><label>Godina</label><input type="number" id="pdvGodina" value="2026"></div>
+        </div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="genPDV()">Generiraj PP-PDV</button></div>
+      <div class="payroll-result" id="pdvResult" style="display:none"></div>
+    </div>
+
+    <!-- POREZ NA DOBIT PAGE -->
+    <div class="page" id="page-porez">
+      <div class="page-header"><h2>📑 Porez na dobit</h2><p>PD obrazac — 10% (&lt;1M) / 18% (≥1M)</p></div>
+      <div class="payroll-form" style="max-width:600px">
+        <div><label>Ukupni prihodi (EUR)</label><input type="number" id="pdPrihodi" value="500000" step="1000"></div>
+        <div><label>Ukupni rashodi (EUR)</label><input type="number" id="pdRashodi" value="400000" step="1000"></div>
+        <div><label>Reprezentacija (EUR)</label><input type="number" id="pdReprez" value="0" step="100"></div>
+        <div><label>Amortizacija iznad (EUR)</label><input type="number" id="pdAmort" value="0" step="100"></div>
+        <div><label>Kazne i penali (EUR)</label><input type="number" id="pdKazne" value="0"></div>
+        <div><label>Preneseni gubitak (EUR)</label><input type="number" id="pdGubitak" value="0" step="1000"></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="calcPorezDobit()">Izračunaj PD</button></div>
+      <div class="payroll-result" id="porezResult" style="display:none"></div>
+    </div>
+
+    <!-- JOPPD PAGE -->
+    <div class="page" id="page-joppd">
+      <div class="page-header"><h2>📄 JOPPD</h2><p>XML obrazac za ePorezna — rok do 15. u mjesecu</p></div>
+      <div class="payroll-form" style="max-width:600px">
+        <div><label>Klijent</label><select id="joppdClient" class="client-select"></select></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label>Mjesec</label><input type="number" id="joppdMjesec" value="1" min="1" max="12"></div>
+          <div><label>Godina</label><input type="number" id="joppdGodina" value="2026"></div>
+        </div>
+        <div><label>Tip</label><select id="joppdTip"><option value="placa">Plaća</option><option value="drugi_dohodak">Drugi dohodak</option><option value="dividenda">Dividenda</option></select></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="genJOPPD()">Generiraj JOPPD XML</button></div>
+      <div class="payroll-result" id="joppdResult" style="display:none"></div>
+    </div>
+
+    <!-- GFI PAGE -->
+    <div class="page" id="page-gfi">
+      <div class="page-header"><h2>📊 GFI</h2><p>Godišnji financijski izvještaji za FINA-u — rok 30.4.</p></div>
+      <div class="payroll-form" style="max-width:600px">
+        <div><label>Klijent</label><select id="gfiClient" class="client-select"></select></div>
+        <div><label>Godina</label><input type="number" id="gfiGodina" value="2025"></div>
+        <div><label>Veličina</label><select id="gfiVelicina"><option value="mikro">Mikro</option><option value="mali" selected>Mali</option><option value="srednji">Srednji</option><option value="veliki">Veliki</option></select></div>
+        <div><label>Tip izvještaja</label><select id="gfiTip"><option value="bilanca">Bilanca + RDG</option><option value="biljeske">Bilješke</option><option value="puni">Puni paket</option></select></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="genGFI()">Generiraj GFI XML</button></div>
+      <div class="payroll-result" id="gfiResult" style="display:none"></div>
+    </div>
+
+    <!-- IOS PAGE -->
+    <div class="page" id="page-ios">
+      <div class="page-header"><h2>🔄 IOS usklađivanja</h2><p>Generiranje i praćenje IOS obrazaca</p></div>
+      <div class="payroll-form" style="max-width:600px">
+        <div><label>Klijent</label><select id="iosClient" class="client-select"></select></div>
+        <div><label>Partner OIB</label><input type="text" id="iosPartnerOIB" placeholder="11 znamenaka"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label>Datum od</label><input type="date" id="iosDatumOd"></div>
+          <div><label>Datum do</label><input type="date" id="iosDatumDo"></div>
+        </div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="genIOS()">Generiraj IOS</button></div>
+      <div class="payroll-result" id="iosResult" style="display:none"></div>
+    </div>
+
+    <!-- E-RACUN PAGE -->
+    <div class="page" id="page-eracun">
+      <div class="page-header"><h2>📨 E-račun</h2><p>UBL/CII — Peppol EN 16931</p></div>
+      <div class="payroll-form" style="max-width:600px">
+        <div><label>Akcija</label><select id="eracunAction"><option value="generate">Generiraj e-račun</option><option value="validate">Validiraj XML</option></select></div>
+        <div><label>Format</label><select id="eracunFormat"><option value="ubl">UBL 2.1</option><option value="cii">CII (Cross-Industry Invoice)</option><option value="zugferd">ZUGFeRD</option></select></div>
+        <div><label>XML datoteka (za validaciju)</label><input type="file" id="eracunFile" accept=".xml"></div>
+      </div>
+      <div style="margin-top:16px"><button class="btn-export" onclick="processEracun()">Izvrši</button></div>
+      <div class="payroll-result" id="eracunResult" style="display:none"></div>
+    </div>
+
     <!-- SYSTEM PAGE -->
     <div class="page" id="page-system">
       <div class="page-header">
@@ -436,9 +598,38 @@ function showApp(){
   document.getElementById('app').classList.add('active');
   document.getElementById('userName').textContent=currentUser.display_name||currentUser.username;
   document.getElementById('userRole').textContent=currentUser.role;
-  loadClients();loadPending();loadDashboard();loadDeadlines();
+  loadClients();loadPending();loadDashboard();loadDeadlines();loadClientSelects();
 }
 function authHeaders(){return{'Authorization':'Bearer '+token,'Content-Type':'application/json'}}
+
+async function fetchAPI(path, opts={}){
+  const headers = {'Authorization':'Bearer '+token};
+  if(!opts.raw) headers['Content-Type']='application/json';
+  const fetchOpts = {method:opts.method||'GET', headers};
+  if(opts.body){
+    fetchOpts.body = opts.body;
+    if(opts.raw) delete headers['Content-Type']; // FormData sets its own
+  }
+  try{
+    const r = await fetch(API+path.replace('/api',''), fetchOpts);
+    if(!r.ok){
+      const err = await r.json().catch(()=>({detail:r.statusText}));
+      showToast(err.detail||'Greška '+r.status,'error');
+      return err;
+    }
+    return await r.json();
+  }catch(e){
+    showToast('Server nije dostupan: '+e.message,'error');
+    return {error:e.message};
+  }
+}
+
+function showToast(msg,type='info'){
+  const t=document.createElement('div');
+  t.style.cssText=`position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;z-index:9999;font-size:14px;color:white;animation:fadeIn .3s;max-width:400px;background:${type==='error'?'var(--red)':type==='success'?'var(--green)':'var(--accent)'}`;
+  t.textContent=msg;document.body.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .3s';setTimeout(()=>t.remove(),300)},4000);
+}
 
 // ═══════════════════════════════════════════
 // NAVIGATION
@@ -811,7 +1002,8 @@ document.addEventListener('keydown',function(e){
   if(e.altKey&&e.key==='2'){showPage('pending');e.preventDefault()}
   if(e.altKey&&e.key==='3'){showPage('dashboard');e.preventDefault()}
   if(e.altKey&&e.key==='4'){showPage('payroll');e.preventDefault()}
-  if(e.altKey&&e.key==='5'){showPage('system');e.preventDefault()}
+  if(e.altKey&&e.key==='5'){showPage('kontiranje');e.preventDefault()}
+  if(e.altKey&&e.key==='6'){showPage('bank');e.preventDefault()}
   if(e.altKey&&e.key==='n'){document.getElementById('chatInput')?.focus();e.preventDefault()}
   if(e.key==='Escape'){document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('active'))}
 });
@@ -898,7 +1090,7 @@ async function loadDashboardV2(){
   if(origLoadDashboard)await origLoadDashboard();
   try{
     // Load monitoring data for charts
-    const mr=await fetch(API+'/monitoring/health',{headers:{'Authorization':'Bearer '+token}});
+    const mr=await fetch(API+'/health',{headers:{'Authorization':'Bearer '+token}});
     if(mr.ok){
       const md=await mr.json();
       const sysCards=document.getElementById('sysCards');
@@ -913,8 +1105,206 @@ async function loadDashboardV2(){
     }
   }catch(e){console.log('Chart load:',e)}
 }
+
+// ═══════════════════════════════════════════
+// BANK PARSER
+// ═══════════════════════════════════════════
+async function parseBank(){
+  const file=document.getElementById('bankFile').files[0];
+  if(!file){showToast('Odaberite datoteku izvoda','error');return}
+  const fd=new FormData();fd.append('file',file);
+  fd.append('bank',document.getElementById('bankSelect').value);
+  fd.append('client_id',document.getElementById('bankClient')?.value||'');
+  const r=await fetchAPI('/api/bank/parse',{method:'POST',body:fd,raw:true});
+  const el=document.getElementById('bankResult');el.style.display='block';
+  if(r.transactions){
+    let h=`<h3>✅ ${r.count||r.transactions.length} transakcija</h3><table class="data-table"><tr><th>Datum</th><th>Opis</th><th>Iznos</th><th>Saldo</th></tr>`;
+    (r.transactions||[]).slice(0,20).forEach(t=>{
+      h+=`<tr><td>${t.datum||''}</td><td>${t.opis||t.description||''}</td><td style="text-align:right;color:${t.iznos<0?'var(--red)':'var(--green)'}">${Number(t.iznos||0).toFixed(2)}</td><td style="text-align:right">${Number(t.saldo||0).toFixed(2)}</td></tr>`;
+    });
+    el.innerHTML=h+'</table>';
+  }else el.innerHTML=`<pre>${JSON.stringify(r,null,2)}</pre>`;
+}
+
+// ═══════════════════════════════════════════
+// KONTIRANJE
+// ═══════════════════════════════════════════
+async function suggestKonto(){
+  const r=await fetchAPI('/api/kontiranje/suggest',{method:'POST',body:JSON.stringify({
+    opis:document.getElementById('kontOpis').value,
+    tip:document.getElementById('kontTip').value,
+    dobavljac:document.getElementById('kontPartner').value,
+    iznos:parseFloat(document.getElementById('kontIznos').value)||0,
+    pdv_stopa:parseFloat(document.getElementById('kontPDV').value)||25
+  })});
+  const el=document.getElementById('kontResult');el.style.display='block';
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px">
+      <div class="stat-card"><div class="stat-label">Duguje</div><div class="stat-value">${r.duguje||'?'}</div><small>${r.duguje_naziv||''}</small></div>
+      <div class="stat-card"><div class="stat-label">Potražuje</div><div class="stat-value">${r.potrazuje||'?'}</div><small>${r.potrazuje_naziv||''}</small></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <div class="stat-card"><div class="stat-label">PDV konto</div><div class="stat-value">${r.pdv_konto||'-'}</div></div>
+      <div class="stat-card"><div class="stat-label">PDV iznos</div><div class="stat-value">${Number(r.pdv_iznos||0).toFixed(2)} EUR</div></div>
+      <div class="stat-card"><div class="stat-label">Pouzdanost</div><div class="stat-value">${Math.round((r.confidence||0)*100)}%</div><small>${r.source||''} ${r.rule_id||''}</small></div>
+    </div>
+    ${r.napomena?`<div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:8px;color:var(--yellow)">⚠️ ${r.napomena}</div>`:''}
+    ${r.alternativni&&r.alternativni.length?`<div style="margin-top:12px;color:var(--text2)">Alternativni: ${r.alternativni.map(a=>`${a.duguje}/${a.potrazuje}`).join(', ')}</div>`:''}
+  `;
+}
+
+// ═══════════════════════════════════════════
+// BLAGAJNA
+// ═══════════════════════════════════════════
+async function validateBlagajna(){
+  const r=await fetchAPI('/api/blagajna/validate',{method:'POST',body:JSON.stringify({
+    iznos:parseFloat(document.getElementById('blagIznos').value)||0,
+    tip:document.getElementById('blagTip').value,
+    opis:document.getElementById('blagOpis').value,
+    partner_oib:document.getElementById('blagOIB').value,
+    pocetno_stanje:parseFloat(document.getElementById('blagPocetno').value)||0
+  })});
+  const el=document.getElementById('blagResult');el.style.display='block';
+  const ok=r.valid!==false&&!r.errors?.length;
+  el.innerHTML=`<h3>${ok?'✅ Nalog valjan':'❌ Problemi pronađeni'}</h3><pre>${JSON.stringify(r,null,2)}</pre>`;
+}
+
+// ═══════════════════════════════════════════
+// PUTNI NALOZI
+// ═══════════════════════════════════════════
+async function calcPutni(){
+  const r=await fetchAPI('/api/putni-nalog/check',{method:'POST',body:JSON.stringify({
+    zaposlenik:document.getElementById('pnZaposlenik').value,
+    odrediste:document.getElementById('pnOdrediste').value,
+    svrha:document.getElementById('pnSvrha').value,
+    datum_polaska:document.getElementById('pnDatumOd').value,
+    datum_povratka:document.getElementById('pnDatumDo').value,
+    km_ukupno:parseFloat(document.getElementById('pnKm').value)||0,
+    zemlja:document.getElementById('pnZemlja').value
+  })});
+  const el=document.getElementById('putniResult');el.style.display='block';
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div class="stat-card"><div class="stat-label">Dnevnice</div><div class="stat-value">${Number(r.ukupne_dnevnice||r.dnevnice||0).toFixed(2)} EUR</div></div>
+      <div class="stat-card"><div class="stat-label">Km naknada</div><div class="stat-value">${Number(r.km_naknada||0).toFixed(2)} EUR</div></div>
+      <div class="stat-card"><div class="stat-label">UKUPNO</div><div class="stat-value" style="color:var(--accent2)">${Number(r.ukupno||0).toFixed(2)} EUR</div></div>
+    </div>
+    ${r.upozorenja?.length?r.upozorenja.map(u=>`<div style="color:var(--yellow)">⚠️ ${u}</div>`).join(''):''}
+    ${r.greske?.length?r.greske.map(g=>`<div style="color:var(--red)">❌ ${g}</div>`).join(''):'✅ Putni nalog ispravan'}
+  `;
+}
+
+// ═══════════════════════════════════════════
+// PDV PRIJAVA
+// ═══════════════════════════════════════════
+async function genPDV(){
+  const r=await fetchAPI('/api/pdv-prijava/generate',{method:'POST',body:JSON.stringify({
+    client_id:document.getElementById('pdvClient')?.value||'',
+    mjesec:parseInt(document.getElementById('pdvMjesec').value),
+    godina:parseInt(document.getElementById('pdvGodina').value)
+  })});
+  const el=document.getElementById('pdvResult');el.style.display='block';
+  el.innerHTML=`<h3>🧾 PP-PDV obrazac</h3><pre>${JSON.stringify(r,null,2)}</pre>`;
+}
+
+// ═══════════════════════════════════════════
+// POREZ NA DOBIT
+// ═══════════════════════════════════════════
+async function calcPorezDobit(){
+  const r=await fetchAPI('/api/porez-dobit/calculate',{method:'POST',body:JSON.stringify({
+    prihodi:parseFloat(document.getElementById('pdPrihodi').value)||0,
+    rashodi:parseFloat(document.getElementById('pdRashodi').value)||0,
+    reprezentacija:parseFloat(document.getElementById('pdReprez').value)||0,
+    amortizacija_iznad:parseFloat(document.getElementById('pdAmort').value)||0,
+    kazne:parseFloat(document.getElementById('pdKazne').value)||0,
+    preneseni_gubitak:parseFloat(document.getElementById('pdGubitak').value)||0
+  })});
+  const el=document.getElementById('porezResult');el.style.display='block';
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div class="stat-card"><div class="stat-label">Dobit</div><div class="stat-value">${Number(r.dobit||r.porezna_osnovica||0).toFixed(2)} EUR</div></div>
+      <div class="stat-card"><div class="stat-label">Stopa</div><div class="stat-value">${r.stopa||'?'}%</div></div>
+      <div class="stat-card"><div class="stat-label">Porez</div><div class="stat-value" style="color:var(--red)">${Number(r.porez_za_uplatu||r.porez||0).toFixed(2)} EUR</div></div>
+    </div>
+    <pre style="font-size:12px">${JSON.stringify(r,null,2)}</pre>
+  `;
+}
+
+// ═══════════════════════════════════════════
+// JOPPD
+// ═══════════════════════════════════════════
+async function genJOPPD(){
+  const r=await fetchAPI('/api/joppd/generate-xml',{method:'POST',body:JSON.stringify({
+    client_id:document.getElementById('joppdClient')?.value||'',
+    mjesec:parseInt(document.getElementById('joppdMjesec').value),
+    godina:parseInt(document.getElementById('joppdGodina').value),
+    tip:document.getElementById('joppdTip').value
+  })});
+  const el=document.getElementById('joppdResult');el.style.display='block';
+  el.innerHTML=`<h3>📄 JOPPD XML</h3><pre>${JSON.stringify(r,null,2)}</pre>`;
+}
+
+// ═══════════════════════════════════════════
+// GFI
+// ═══════════════════════════════════════════
+async function genGFI(){
+  const r=await fetchAPI('/api/gfi/bilanca',{method:'POST',body:JSON.stringify({
+    client_id:document.getElementById('gfiClient')?.value||'',
+    godina:parseInt(document.getElementById('gfiGodina').value),
+    velicina:document.getElementById('gfiVelicina').value,
+    tip:document.getElementById('gfiTip').value
+  })});
+  const el=document.getElementById('gfiResult');el.style.display='block';
+  el.innerHTML=`<h3>📊 GFI XML</h3><pre style="max-height:400px;overflow:auto">${typeof r==='string'?r:JSON.stringify(r,null,2)}</pre>`;
+}
+
+// ═══════════════════════════════════════════
+// IOS
+// ═══════════════════════════════════════════
+async function genIOS(){
+  const r=await fetchAPI('/api/ios/generate',{method:'POST',body:JSON.stringify({
+    client_id:document.getElementById('iosClient')?.value||'',
+    partner_oib:document.getElementById('iosPartnerOIB').value,
+    datum_od:document.getElementById('iosDatumOd').value,
+    datum_do:document.getElementById('iosDatumDo').value
+  })});
+  const el=document.getElementById('iosResult');el.style.display='block';
+  el.innerHTML=`<h3>🔄 IOS obrazac</h3><pre>${JSON.stringify(r,null,2)}</pre>`;
+}
+
+// ═══════════════════════════════════════════
+// E-RACUN / PEPPOL
+// ═══════════════════════════════════════════
+async function processEracun(){
+  const action=document.getElementById('eracunAction').value;
+  if(action==='validate'){
+    const file=document.getElementById('eracunFile').files[0];
+    if(!file){showToast('Odaberite XML datoteku','error');return}
+    const fd=new FormData();fd.append('file',file);
+    const r=await fetchAPI('/api/peppol/validate',{method:'POST',body:fd,raw:true});
+    document.getElementById('eracunResult').style.display='block';
+    document.getElementById('eracunResult').innerHTML=`<h3>Validacija</h3><pre>${JSON.stringify(r,null,2)}</pre>`;
+  }else{
+    const format=document.getElementById('eracunFormat').value;
+    const r=await fetchAPI('/api/e-racun/generate',{method:'POST',body:JSON.stringify({format})});
+    document.getElementById('eracunResult').style.display='block';
+    document.getElementById('eracunResult').innerHTML=`<h3>E-račun (${format})</h3><pre>${typeof r==='string'?r:JSON.stringify(r,null,2)}</pre>`;
+  }
+}
+
+// Populate client selects on page load
+async function loadClientSelects(){
+  try{
+    const r=await fetchAPI('/api/clients');
+    const clients=r.clients||r||[];
+    document.querySelectorAll('.client-select').forEach(sel=>{
+      sel.innerHTML='<option value="">-- Odaberi klijenta --</option>';
+      clients.forEach(c=>{sel.innerHTML+=`<option value="${c.id||c.oib||''}">${c.name||c.naziv||c.id||''}</option>`});
+    });
+  }catch(e){}
+}
 </script>
 <!-- Keyboard shortcuts hint -->
-<div class="kb-hint">⌨ Alt+1 Chat · Alt+2 Odobrenja · Alt+3 Dashboard · Alt+4 Plaće · Alt+N Fokus</div>
+<div class="kb-hint">⌨ Alt+1 Chat · Alt+2 Odobrenja · Alt+3 Dashboard · Alt+4 Plaće · Alt+5 Kontiranje · Alt+6 Banka · Alt+N Fokus</div>
 </body>
 </html>

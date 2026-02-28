@@ -247,8 +247,8 @@ def step_create_demo_users(vault):
     from nyx_light.security import CredentialVault, PasswordHasher, UserRole
 
     demo_users = [
-        {"username": "admin", "display": "Administrator", "role": UserRole.ADMIN,
-         "password": "NyxAdmin2026!"},
+        {"username": "vladimir.budija", "display": "Vladimir Budija", "role": UserRole.ADMIN,
+         "password": "VBudija2026!Nyx"},
         {"username": "ana.horvat", "display": "Ana Horvat", "role": UserRole.RACUNOVODA,
          "password": "AnaHorvat2026!"},
         {"username": "marko.babic", "display": "Marko Babić", "role": UserRole.RACUNOVODA,

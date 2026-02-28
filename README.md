@@ -59,13 +59,14 @@ Sustav sadrži kompletnu bazu hrvatskih propisa s vremenskim kontekstom:
 
 | Komponenta | Minimum | Preporučeno |
 |-----------|---------|-------------|
-| Računalo | Mac Studio M4 Ultra | Mac Studio M5 Ultra |
-| RAM | 128 GB Unified Memory | 192 GB Unified Memory |
+| Računalo | Mac Studio M4 Max (2025) | Mac Studio M3 Ultra (2025) |
+| RAM | 128 GB Unified Memory | 256 GB Unified Memory |
 | Disk | 1 TB SSD | 2 TB SSD |
 | OS | macOS 15 Sequoia | macOS 15.3+ |
 
-Apple Silicon Unified Memory opcije: 36 GB, 64 GB, 96 GB, 128 GB, 192 GB, 256 GB, 512 GB.
-Za Qwen3-235B potrebno minimalno 128 GB; za Qwen 72B dovoljno 64 GB.
+**M4 Max** RAM opcije: 36 GB, 48 GB, 64 GB, 128 GB.
+**M3 Ultra** RAM opcije: 96 GB, 256 GB, 512 GB.
+Za Qwen3-235B-A22B (4-bit) potrebno minimalno 128 GB; optimalno 256 GB.
 
 ## Brza instalacija
 
@@ -268,15 +269,20 @@ Sustav podržava europske standarde e-fakturiranja:
 
 ## Hardverske opcije
 
-| Konfiguracija | RAM | Model | Korisnici |
-|--------------|-----|-------|-----------|
-| Mac Studio M4 Max | 36 GB | Qwen 7B | do 5 |
-| Mac Studio M4 Max | 64 GB | Qwen 32B | do 8 |
-| Mac Studio M4 Ultra | 96 GB | Qwen 72B (Q4) | do 10 |
-| Mac Studio M4 Ultra | 128 GB | Qwen 72B (Q8) | do 12 |
-| Mac Studio M5 Ultra | 192 GB | Qwen3-235B-A22B (4-bit) | do 15 |
-| Mac Studio M5 Ultra | 256 GB | Qwen3-235B + VL-72B | do 15+ |
-| Mac Pro M5 Ultra | 512 GB | Više modela istovremeno | do 20+ |
+**Trenutno dostupno (Mac Studio 2025):**
+
+| Konfiguracija | Chip | RAM | Model | Korisnici |
+|--------------|------|-----|-------|-----------|
+| Mac Studio M4 Max (14-core) | M4 Max | 36 GB | Qwen 7B | do 5 |
+| Mac Studio M4 Max (16-core) | M4 Max | 64 GB | Qwen 32B | do 8 |
+| Mac Studio M4 Max (16-core) | M4 Max | 128 GB | Qwen 72B (Q8) | do 12 |
+| Mac Studio M3 Ultra (28-core) | M3 Ultra | 96 GB | Qwen 72B (Q4) | do 10 |
+| Mac Studio M3 Ultra (32-core) | M3 Ultra | 256 GB | Qwen3-235B-A22B (4-bit) | do 15 |
+| Mac Studio M3 Ultra (32-core) | M3 Ultra | 512 GB | Qwen3-235B + VL-72B | do 15+ |
+
+**Uskoro (Mac Studio M5 — očekivano 2026):**
+
+M5 Max i M5 Ultra najavljeni su za prvu polovicu 2026. Očekuju se iste ili veće RAM opcije uz bolje performanse.
 
 ## Sigurnost
 
@@ -315,6 +321,7 @@ python nyx-remote.py tests            # Pokreni testove
 ## Licenca
 
 Privatni softver. Sva prava pridržana.
+Kreator: **Mladen Mešter**
 
 ---
 

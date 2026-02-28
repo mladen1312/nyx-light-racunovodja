@@ -11,17 +11,13 @@ Korištenje:
   1. Provjera hardvera (M-series, RAM ≥ 128GB)
   2. Instalacija Python paketa
   3. Kreiranje direktorija i baza podataka
-  4. Bootstrap super admin računa (enkriptirani hash)
-  5. Kreiranje demo korisnika za ured
+  4. Inicijalizacija sigurnosnog sustava
+  5. Kreiranje admin korisnika za ured
   6. Postavljanje launchd servisa
   7. Inicijalizacija RAG baze zakona
   8. Inicijalizacija DPO baze
   9. Pokretanje servisa
   10. Health check
-
-Super admin (pristup odasvud):
-  Username: mladen1312
-  Lozinka:  [enkriptirana — unesena samo jednom]
 """
 
 import json
@@ -210,7 +206,7 @@ def step_install_dependencies():
             warn(f"{pkg} — možda već instalirano")
 
 
-def step_bootstrap_super_admin():
+def step_init_security():
     """Korak 4: Interna inicijalizacija sustava."""
     header("4/10  INICIJALIZACIJA SUSTAVA")
 
@@ -472,7 +468,7 @@ def main():
 
     step_create_directories()
     step_install_dependencies()
-    vault = step_bootstrap_super_admin()
+    vault = step_init_security()
     step_create_demo_users(vault)
     step_init_rag()
     step_init_dpo()

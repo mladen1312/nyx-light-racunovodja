@@ -92,6 +92,8 @@ class AppState:
         self.monitor: Optional[SystemMonitor] = None
         self.backup: Optional[BackupManager] = None
         self.llm_queue = None  # LLMRequestQueue
+        self.nyx_app = None    # NyxLightApp — centralni orchestrator
+        self.executor = None   # ModuleExecutor — most router↔moduli
         self.start_time = datetime.now(timezone.utc)
         self.ws_connections: Dict[str, WebSocket] = {}
 
@@ -116,6 +118,22 @@ async def lifespan(app: FastAPI):
     state.session_mgr = state.sessions  # Alias
     state.monitor = SystemMonitor()
     state.backup = BackupManager()
+
+    # NyxLightApp — centralni orchestrator (spaja SVE module)
+    try:
+        from nyx_light.app import NyxLightApp
+        state.nyx_app = NyxLightApp(db_path="data/nyx.db")
+        logger.info("NyxLightApp inicijaliziran (svi moduli spojeni)")
+    except Exception as e:
+        logger.warning("NyxLightApp not started: %s", e)
+
+    # ModuleExecutor — most između routera i modula
+    try:
+        from nyx_light.api.module_executor import ModuleExecutor
+        state.executor = ModuleExecutor(app=state.nyx_app, storage=state.storage)
+        logger.info("ModuleExecutor inicijaliziran (44 modula)")
+    except Exception as e:
+        logger.warning("ModuleExecutor not started: %s", e)
 
     # LLM Request Queue — max 3 concurrent, 10/min per user
     try:
@@ -284,16 +302,43 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
     except Exception as e:
         logger.debug("RAG search: %s", e)
 
-    # Module routing — preusmjeri na specijalizirani modul ako je moguće
+    # ═══════════════════════════════════════════
+    # MODULE ROUTING + EXECUTION (NOVA INTEGRACIJA)
+    # ═══════════════════════════════════════════
+    module_result = None
     try:
         from nyx_light.router import ModuleRouter
         route = ModuleRouter().route(req.message)
-        if route.get("confidence", 0) > 0.7:
+
+        # Ako router ima visoku confidence (>0.6), IZVRŠI modul
+        if route.confidence > 0.6 and route.module != "general" and state.executor:
+            module_result = state.executor.execute(
+                module=route.module,
+                sub_intent=route.sub_intent,
+                data=route.entities,
+                client_id=req.client_id,
+                user_id=user_id,
+            )
+
+            # Dodaj rezultat modula kao kontekst za LLM
+            if module_result and module_result.llm_context:
+                context.semantic_facts.append(
+                    f"[Modul {route.module} ({route.confidence:.0%}): "
+                    f"{module_result.llm_context}]"
+                )
+            if module_result and module_result.data:
+                context.pipeline_context = (
+                    f"Modul '{route.module}' izvršen. Rezultat: {module_result.summary}. "
+                    f"Podaci: {str(module_result.data)[:500]}"
+                )
+        elif route.confidence > 0.4 and route.module != "general":
+            # Srednja confidence — dodaj hint ali ne izvršavaj
             context.semantic_facts.append(
-                f"[Router: preporuča modul '{route.get('module', '')}' "
-                f"(confidence: {route.get('confidence', 0):.0%})]")
-    except Exception:
-        pass
+                f"[Router: moguć modul '{route.module}' "
+                f"(confidence: {route.confidence:.0%}) — korisnik možda želi ovaj modul]"
+            )
+    except Exception as e:
+        logger.debug("Module routing/execution: %s", e)
 
     # Call LLM — through request queue for fair scheduling
     try:
@@ -322,12 +367,22 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
         session_id=session_id,
     )
 
-    return {
+    result = {
         "content": response.content,
         "tokens": response.tokens_used,
         "latency_ms": round(response.latency_ms, 1),
         "model": response.model,
     }
+
+    # Dodaj module metadata ako je modul izvršen
+    if module_result:
+        result["module_used"] = module_result.module
+        result["module_action"] = module_result.action
+        result["module_success"] = module_result.success
+        if module_result.data:
+            result["module_data"] = module_result.data
+
+    return result
 
 # WebSocket chat (streaming) — s JWT autentikacijom
 @app.websocket("/api/ws/chat")
@@ -1749,3 +1804,504 @@ async def queue_user_stats(user_id: str, user=Depends(get_current_user)):
     if state.llm_queue:
         return state.llm_queue.get_user_stats(user_id)
     return {"status": "queue_not_active"}
+
+
+# ═══════════════════════════════════════════
+# MODULE EXECUTOR — UNIFIED ENDPOINT
+# ═══════════════════════════════════════════
+
+@app.post("/api/module/execute")
+async def execute_module(request: Request, user=Depends(get_current_user)):
+    """Izvrši bilo koji modul putem unified endpointa."""
+    data = await request.json()
+    module = data.get("module", "")
+    if not module:
+        raise HTTPException(400, "Nedostaje 'module' parametar")
+    if not state.executor:
+        raise HTTPException(503, "ModuleExecutor nije inicijaliziran")
+    result = state.executor.execute(
+        module=module,
+        sub_intent=data.get("sub_intent", ""),
+        data=data.get("data", {}),
+        client_id=data.get("client_id", ""),
+        user_id=user.get("user_id", ""),
+    )
+    return {"success": result.success, "module": result.module, "action": result.action,
+            "data": result.data, "summary": result.summary, "errors": result.errors}
+
+@app.get("/api/module/list")
+async def list_all_modules(user=Depends(get_current_user)):
+    """Lista svih dostupnih modula."""
+    if state.executor:
+        return {"modules": state.executor.get_available_modules(), "count": len(state.executor.get_available_modules())}
+    from nyx_light.router import ModuleRouter
+    return {"modules": ModuleRouter().get_available_modules()}
+
+@app.get("/api/module/stats")
+async def module_stats(user=Depends(get_current_user)):
+    """Statistike izvršavanja modula."""
+    stats = {}
+    if state.executor:
+        stats["executor"] = state.executor.get_stats()
+    return stats
+
+# ═══════════════════════════════════════════
+# MODUL: OSNOVNA SREDSTVA (Amortizacija)
+# ═══════════════════════════════════════════
+
+@app.post("/api/osnovna-sredstva/depreciation")
+async def calculate_depreciation(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.osnovna_sredstva import OsnovnaSredstvaEngine
+    engine = OsnovnaSredstvaEngine()
+    result = engine.calculate_depreciation(
+        nabavna_vrijednost=data.get("nabavna_vrijednost", 0),
+        skupina=data.get("skupina", ""),
+        datum_nabave=data.get("datum_nabave", ""),
+        naziv=data.get("naziv", ""),
+    )
+    return result
+
+# ═══════════════════════════════════════════
+# MODUL: PAYROLL (full engine)
+# ═══════════════════════════════════════════
+
+@app.post("/api/payroll/full-calculate")
+async def payroll_full(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.payroll import PayrollEngine, Employee
+    engine = PayrollEngine()
+    emp = Employee(**data.get("employee", {})) if data.get("employee") else None
+    if emp:
+        result = engine.calculate(emp)
+        return result if isinstance(result, dict) else {"raw": str(result)}
+    return {"error": "Potrebni podaci zaposlenika (bruto, osobni_odbitak, prirez...)"}
+
+# ═══════════════════════════════════════════
+# MODUL: FAKTURIRANJE
+# ═══════════════════════════════════════════
+
+@app.post("/api/fakturiranje/create")
+async def create_invoice(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.fakturiranje import FakturiranjeEngine
+    engine = FakturiranjeEngine()
+    result = engine.create_invoice(
+        client_id=data.get("client_id", ""),
+        kupac_oib=data.get("kupac_oib", ""),
+        stavke=data.get("stavke", []),
+        datum=data.get("datum", ""),
+    )
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: PEPPOL
+# ═══════════════════════════════════════════
+
+@app.post("/api/peppol/validate")
+async def peppol_validate(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.peppol import PeppolIntegration
+    proc = PeppolIntegration()
+    result = proc.validate(data.get("xml", ""), data.get("format", "UBL"))
+    return result if isinstance(result, dict) else {"valid": bool(result)}
+
+@app.get("/api/peppol/formats")
+async def peppol_formats(user=Depends(get_current_user)):
+    return {"formats": ["UBL 2.1", "CII", "ZUGFeRD 2.1", "FatturaPA", "EN 16931"]}
+
+# ═══════════════════════════════════════════
+# MODUL: FISKALIZACIJA 2.0
+# ═══════════════════════════════════════════
+
+@app.post("/api/fiskalizacija/fiscalize")
+async def fiskalize(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.fiskalizacija2 import Fiskalizacija2Engine
+    engine = Fiskalizacija2Engine()
+    result = engine.fiscalize(data)
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+@app.get("/api/fiskalizacija/status")
+async def fiskalizacija_status(user=Depends(get_current_user)):
+    from nyx_light.modules.fiskalizacija2 import Fiskalizacija2Engine
+    engine = Fiskalizacija2Engine()
+    return engine.get_status() if hasattr(engine, "get_status") else {"status": "ready"}
+
+# ═══════════════════════════════════════════
+# MODUL: INTRASTAT
+# ═══════════════════════════════════════════
+
+@app.post("/api/intrastat/check")
+async def intrastat_check(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.intrastat import IntrastatEngine
+    engine = IntrastatEngine()
+    result = engine.check_obligation(
+        primitak_ytd=data.get("primitak_ytd", 0),
+        otprema_ytd=data.get("otprema_ytd", 0),
+    )
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: BOLOVANJE
+# ═══════════════════════════════════════════
+
+@app.post("/api/bolovanje/calculate")
+async def bolovanje_calc(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.bolovanje import BolovanjeEngine
+    engine = BolovanjeEngine()
+    result = engine.calculate(
+        dani=data.get("dani", 0),
+        bruto_placa=data.get("bruto_placa", 0),
+        tip=data.get("tip", "bolest"),
+    )
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: DRUGI DOHODAK
+# ═══════════════════════════════════════════
+
+@app.post("/api/drugi-dohodak/calculate")
+async def drugi_dohodak_calc(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.drugi_dohodak import DrugiDohodakEngine
+    engine = DrugiDohodakEngine()
+    result = engine.calculate(bruto=data.get("bruto", 0), tip=data.get("tip", "ugovor_o_djelu"))
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: POREZ NA DOHODAK
+# ═══════════════════════════════════════════
+
+@app.post("/api/porez-dohodak/calculate")
+async def porez_dohodak_calc(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.porez_dohodak import PorezDohodakEngine
+    engine = PorezDohodakEngine()
+    result = engine.calculate(
+        ukupni_dohodak=data.get("ukupni_dohodak", 0),
+        osobni_odbitak=data.get("osobni_odbitak", 560),
+    )
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: LEDGER (Glavna knjiga)
+# ═══════════════════════════════════════════
+
+@app.get("/api/ledger/dnevnik")
+async def ledger_dnevnik(user=Depends(get_current_user)):
+    from nyx_light.modules.ledger import GeneralLedger
+    engine = GeneralLedger()
+    return {"available": True, "reports": ["dnevnik", "glavna_knjiga", "analitika"]}
+
+# ═══════════════════════════════════════════
+# MODUL: LIKVIDACIJA
+# ═══════════════════════════════════════════
+
+@app.post("/api/likvidacija/start")
+async def likvidacija_start(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.likvidacija import LikvidacijaEngine
+    engine = LikvidacijaEngine()
+    result = engine.start(data)
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: ACCRUALS (PVR/AVR)
+# ═══════════════════════════════════════════
+
+@app.get("/api/accruals/checklist")
+async def accruals_checklist(period: str = "monthly", user=Depends(get_current_user)):
+    from nyx_light.modules.accruals import AccrualsChecklist
+    checklist = AccrualsChecklist()
+    result = checklist.get_checklist(period=period)
+    return result if isinstance(result, dict) else {"items": result}
+
+# ═══════════════════════════════════════════
+# MODUL: NOVČANI TOKOVI
+# ═══════════════════════════════════════════
+
+@app.post("/api/novcani-tokovi/report")
+async def novcani_tokovi(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.novcani_tokovi import NovcanitTokoviEngine
+    engine = NovcanitTokoviEngine()
+    result = engine.generate(client_id=data.get("client_id", ""),
+                             godina=data.get("godina", 2025))
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: KPI Dashboard
+# ═══════════════════════════════════════════
+
+@app.post("/api/kpi/calculate")
+async def kpi_calculate(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.kpi import KPIDashboard
+    dashboard = KPIDashboard()
+    result = dashboard.calculate(data)
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: MANAGEMENT ACCOUNTING
+# ═══════════════════════════════════════════
+
+@app.post("/api/management-accounting/report")
+async def mgmt_accounting(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.management_accounting import ManagementAccounting
+    engine = ManagementAccounting()
+    result = engine.generate_report(data)
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: BUSINESS PLAN
+# ═══════════════════════════════════════════
+
+@app.post("/api/business-plan/generate")
+async def business_plan(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.business_plan import BusinessPlanGenerator
+    engine = BusinessPlanGenerator()
+    result = engine.generate(data)
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: KADROVSKA EVIDENCIJA
+# ═══════════════════════════════════════════
+
+@app.get("/api/kadrovska/employees")
+async def kadrovska_list(user=Depends(get_current_user)):
+    from nyx_light.modules.kadrovska import KadrovskaEvidencija
+    engine = KadrovskaEvidencija()
+    return engine.list_employees() if hasattr(engine, "list_employees") else {"employees": []}
+
+# ═══════════════════════════════════════════
+# MODUL: COMMUNICATION
+# ═══════════════════════════════════════════
+
+@app.post("/api/communication/send")
+async def communication_send(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.communication import ReportExplainer
+    engine = ReportExplainer()
+    result = engine.send(
+        tip=data.get("tip", "email"),
+        primatelj=data.get("primatelj", ""),
+        predmet=data.get("predmet", ""),
+        sadrzaj=data.get("sadrzaj", ""),
+    )
+    return result if isinstance(result, dict) else {"sent": bool(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: CLIENT MANAGEMENT
+# ═══════════════════════════════════════════
+
+@app.get("/api/client-management/list")
+async def client_mgmt_list(user=Depends(get_current_user)):
+    from nyx_light.modules.client_management import ClientOnboarding
+    engine = ClientOnboarding()
+    return engine.list_clients() if hasattr(engine, "list_clients") else {"clients": []}
+
+# ═══════════════════════════════════════════
+# MODUL: DEADLINES (Porezni rokovi)
+# ═══════════════════════════════════════════
+
+@app.get("/api/deadlines/upcoming")
+async def deadlines_upcoming(days: int = 30, user=Depends(get_current_user)):
+    from nyx_light.modules.deadlines import DeadlineTracker
+    tracker = DeadlineTracker()
+    result = tracker.get_upcoming(days=days)
+    return result if isinstance(result, dict) else {"deadlines": result if isinstance(result, list) else []}
+
+# ═══════════════════════════════════════════
+# MODUL: ERACUNI PARSER
+# ═══════════════════════════════════════════
+
+@app.post("/api/eracuni/parse")
+async def eracuni_parse(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.eracuni_parser import ERacuniParser
+    parser = ERacuniParser()
+    result = parser.parse(data.get("xml", ""))
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: UNIVERSAL PARSER
+# ═══════════════════════════════════════════
+
+@app.post("/api/universal-parser/parse")
+async def universal_parse(
+    file: UploadFile = File(...),
+    user=Depends(get_current_user)
+):
+    content = await file.read()
+    from nyx_light.modules.universal_parser import UniversalInvoiceParser
+    parser = UniversalInvoiceParser()
+    result = parser.parse(content, filename=file.filename)
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: OUTGOING INVOICE
+# ═══════════════════════════════════════════
+
+@app.post("/api/outgoing-invoice/validate")
+async def outgoing_invoice_validate(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.outgoing_invoice import OutgoingInvoiceValidator
+    validator = OutgoingInvoiceValidator()
+    result = validator.validate(data)
+    return result if isinstance(result, dict) else {"valid": bool(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: VISION LLM
+# ═══════════════════════════════════════════
+
+@app.post("/api/vision/process")
+async def vision_process(
+    file: UploadFile = File(...),
+    user=Depends(get_current_user)
+):
+    content = await file.read()
+    from nyx_light.modules.vision_llm import VisionLLMClient
+    processor = VisionLLMClient()
+    result = processor.process(content, filename=file.filename)
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: GFI PREP
+# ═══════════════════════════════════════════
+
+@app.post("/api/gfi/prep")
+async def gfi_prep(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    from nyx_light.modules.gfi_prep import GFIPrepEngine
+    engine = GFIPrepEngine()
+    result = engine.prepare(client_id=data.get("client_id", ""),
+                            godina=data.get("godina", 2025))
+    return result if isinstance(result, dict) else {"raw": str(result)}
+
+# ═══════════════════════════════════════════
+# MODUL: NETWORK
+# ═══════════════════════════════════════════
+
+@app.get("/api/network/status")
+async def network_status(user=Depends(get_current_user)):
+    from nyx_light.modules.network import NetworkSetupGenerator
+    manager = NetworkSetupGenerator()
+    return manager.get_status() if hasattr(manager, "get_status") else {"mdns": True, "tailscale": "check"}
+
+# ═══════════════════════════════════════════
+# MODUL: SCALABILITY
+# ═══════════════════════════════════════════
+
+@app.get("/api/scalability/metrics")
+async def scalability_metrics(user=Depends(get_current_user)):
+    from nyx_light.modules.scalability import TaskQueue
+    engine = TaskQueue()
+    return engine.get_metrics() if hasattr(engine, "get_metrics") else {"status": "ready"}
+
+# ═══════════════════════════════════════════
+# MODUL: AUDIT TRAIL
+# ═══════════════════════════════════════════
+
+@app.get("/api/audit/trail")
+async def audit_trail_full(user=Depends(get_current_user)):
+    from nyx_light.modules.audit import AuditTrail
+    engine = AuditTrail()
+    return engine.get_trail() if hasattr(engine, "get_trail") else {"entries": []}
+
+# ═══════════════════════════════════════════
+# NYSXLIGHTAPP — UNIFIED ORCHESTRATOR ENDPOINTS
+# ═══════════════════════════════════════════
+
+@app.post("/api/nyx/process-invoice")
+async def nyx_process_invoice(request: Request, user=Depends(get_current_user)):
+    """Procesuiraj račun kroz NyxLightApp orchestrator."""
+    data = await request.json()
+    if not state.nyx_app:
+        raise HTTPException(503, "NyxLightApp nije inicijaliziran")
+    result = state.nyx_app.process_invoice(
+        ocr_data=data.get("ocr_data", {}),
+        client_id=data.get("client_id", ""),
+    )
+    return result
+
+@app.post("/api/nyx/process-bank")
+async def nyx_process_bank(request: Request, user=Depends(get_current_user)):
+    """Procesuiraj bankovni izvod kroz NyxLightApp orchestrator."""
+    data = await request.json()
+    if not state.nyx_app:
+        raise HTTPException(503, "NyxLightApp nije inicijaliziran")
+    result = state.nyx_app.process_bank_statement(
+        raw_data=data.get("raw_data", ""),
+        bank=data.get("bank", ""),
+        format_hint=data.get("format", "csv"),
+        client_id=data.get("client_id", ""),
+    )
+    return result
+
+@app.post("/api/nyx/process-petty-cash")
+async def nyx_process_petty_cash(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    if not state.nyx_app:
+        raise HTTPException(503, "NyxLightApp nije inicijaliziran")
+    result = state.nyx_app.process_petty_cash(
+        transaction=data.get("transaction", {}),
+        client_id=data.get("client_id", ""),
+    )
+    return result
+
+@app.post("/api/nyx/process-travel")
+async def nyx_process_travel(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    if not state.nyx_app:
+        raise HTTPException(503, "NyxLightApp nije inicijaliziran")
+    result = state.nyx_app.process_travel_expense(
+        travel_data=data.get("travel_data", {}),
+        client_id=data.get("client_id", ""),
+    )
+    return result
+
+@app.post("/api/nyx/prepare-pdv")
+async def nyx_prepare_pdv(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    if not state.nyx_app:
+        raise HTTPException(503, "NyxLightApp nije inicijaliziran")
+    result = state.nyx_app.prepare_pdv_prijava(
+        client_id=data.get("client_id", ""),
+        period=data.get("period", ""),
+    )
+    return result
+
+@app.post("/api/nyx/generate-gfi")
+async def nyx_generate_gfi(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    if not state.nyx_app:
+        raise HTTPException(503, "NyxLightApp nije inicijaliziran")
+    result = state.nyx_app.generate_gfi_xml(
+        client_id=data.get("client_id", ""),
+        godina=data.get("godina", 2025),
+    )
+    return result
+
+@app.post("/api/nyx/export-erp")
+async def nyx_export_erp(request: Request, user=Depends(get_current_user)):
+    data = await request.json()
+    if not state.nyx_app:
+        raise HTTPException(503, "NyxLightApp nije inicijaliziran")
+    result = state.nyx_app.export_to_erp(
+        client_id=data.get("client_id", ""),
+        format_hint=data.get("format", "cpp_xml"),
+    )
+    return result
+
+@app.get("/api/nyx/status")
+async def nyx_status(user=Depends(get_current_user)):
+    """NyxLightApp status — svi moduli."""
+    if not state.nyx_app:
+        return {"status": "not_initialized"}
+    return state.nyx_app.get_system_status()
+

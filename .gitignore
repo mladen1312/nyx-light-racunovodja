@@ -35,3 +35,5 @@ nyx_data/
 docker-compose.override.yml
 *.pem
 *.key
+data/nyx.db-shm
+data/nyx.db-wal

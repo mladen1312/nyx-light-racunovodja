@@ -158,6 +158,261 @@ INTENT_PATTERNS = {
             "general": [r"(export|izvez|generiraj)"],
         },
     },
+    "porez_dobit": {
+        "keywords": [
+            r"\b(porez.*dobit|pd.*obrazac|pd-nn|porezna.*dobit|"
+            r"porezna.*osnovica|nepriznati.*rashod|10%.*18%)\b"
+        ],
+        "sub_intents": {
+            "calculate": [r"(izračun|obračun|koliko)"],
+            "form": [r"(obrazac|pd|prijav)"],
+        },
+    },
+    "porez_dohodak": {
+        "keywords": [
+            r"\b(porez.*dohodak|godišnj.*prijav|dohodak.*obrazac|"
+            r"osobni odbitak|560|20%.*30%)\b"
+        ],
+        "sub_intents": {
+            "calculate": [r"(izračun|obračun)"],
+        },
+    },
+    "pdv_prijava": {
+        "keywords": [
+            r"\b(pdv.*prijav|pp-pdv|obrazac.*pdv|pdv.*obrazac|"
+            r"pretporez|povrat.*pdv|knjiga.*ura|knjiga.*ira)\b"
+        ],
+        "sub_intents": {
+            "generate": [r"(generiraj|kreiraj|pripremi)"],
+        },
+    },
+    "joppd": {
+        "keywords": [
+            r"\b(joppd|obrazac.*joppd|joppd.*obrazac|stranica.*[ab]|"
+            r"eporezna.*joppd|doprinosi.*obrazac)\b"
+        ],
+        "sub_intents": {
+            "generate": [r"(generiraj|kreiraj|pripremi)"],
+        },
+    },
+    "payroll": {
+        "keywords": [
+            r"\b(obračun.*plać|platna.*lista|isplata.*plać|bruto.*neto|"
+            r"neto.*bruto|prosječna.*plaća|minimalna.*plaća)\b"
+        ],
+        "sub_intents": {
+            "calculate": [r"(izračun|obračun|koliko)"],
+        },
+    },
+    "bolovanje": {
+        "keywords": [
+            r"\b(bolovanje|bolesnički|hzzo|doznaka|privremena.*nesposobnost|"
+            r"naknada.*bolovanje|refundacij|42.*dan)\b"
+        ],
+        "sub_intents": {
+            "calculate": [r"(izračun|obračun|koliko)"],
+        },
+    },
+    "drugi_dohodak": {
+        "keywords": [
+            r"\b(drugi.*dohodak|ugovor.*djel[ou]|autorsk.*honorar|"
+            r"studentski.*rad|stipendij|nagrada)\b"
+        ],
+        "sub_intents": {
+            "calculate": [r"(izračun|obračun|koliko)"],
+        },
+    },
+    "osnovna_sredstva": {
+        "keywords": [
+            r"\b(osnovno.*sredstv|dugotrajan.*imovin|amortizacij|otpis|"
+            r"nabavna.*vrijednost|vijek.*trajanj|inventur)\b"
+        ],
+        "sub_intents": {
+            "calculate": [r"(izračun|koliko|stopa)"],
+        },
+    },
+    "kompenzacije": {
+        "keywords": [
+            r"\b(kompenzacij|prijeboj|cesij|prebijanj|multilateral|"
+            r"jednostran.*kompenz)\b"
+        ],
+        "sub_intents": {
+            "find": [r"(pronađi|nađi|provjeri)"],
+        },
+    },
+    "e_racun": {
+        "keywords": [
+            r"\b(e-račun|eračun|elektronički.*račun|ubl|cii|"
+            r"zugferd|factur-x|xml.*račun)\b"
+        ],
+        "sub_intents": {
+            "generate": [r"(generiraj|kreiraj|napravi)"],
+            "validate": [r"(validiraj|provjeri)"],
+        },
+    },
+    "peppol": {
+        "keywords": [
+            r"\b(peppol|as4|b2brouter|en.*16931|cius|"
+            r"pristupna.*točka|access.*point)\b"
+        ],
+    },
+    "fiskalizacija2": {
+        "keywords": [
+            r"\b(fiskalizacij|fisk|cis|jir|zki|qr.*kod|"
+            r"naplatni.*uređaj|blagajn.*fisk)\b"
+        ],
+    },
+    "intrastat": {
+        "keywords": [
+            r"\b(intrastat|eu.*robna|robn.*razmjen|dzs.*prijav|"
+            r"unutar.*eu|400.*000)\b"
+        ],
+    },
+    "gfi_xml": {
+        "keywords": [
+            r"\b(gfi|godišnj.*financijsk|bilanca|rdg|račun.*dobit.*gubit|"
+            r"fina.*xml|gfi-pod)\b"
+        ],
+        "sub_intents": {
+            "bilanca": [r"(bilanca|aktiv|pasiv)"],
+            "rdg": [r"(rdg|prihod|rashod|dobit.*gubit)"],
+        },
+    },
+    "reports": {
+        "keywords": [
+            r"\b(izvješt|izvještaj|report|bruto.*bilanc|analitičk|"
+            r"rekapitulacij|pregled.*knjižen)\b"
+        ],
+    },
+    "kpi": {
+        "keywords": [
+            r"\b(kpi|pokazatelj|likvidnost|solventnost|profitabilnost|"
+            r"ebitda|roa|roe|tekući.*omjer)\b"
+        ],
+    },
+    "fakturiranje": {
+        "keywords": [
+            r"\b(faktur|izlazni.*račun|izrada.*račun|novi.*račun|"
+            r"fakturiraj|naplat|ponuda.*račun)\b"
+        ],
+    },
+    "ledger": {
+        "keywords": [
+            r"\b(glavna.*knjiga|dnevnik.*knjižen|analitičk.*kartic|"
+            r"temeljnica|sintetičk|protustavk)\b"
+        ],
+    },
+    "kadrovska": {
+        "keywords": [
+            r"\b(kadrovsk|zaposlenik|ugovor.*rad|matičn.*podac|"
+            r"godišnji.*odmor|evidencij.*rad)\b"
+        ],
+    },
+    "deadlines": {
+        "keywords": [
+            r"\b(rok|rokovi|zakonsk.*rok|porezn.*rok|deadline|"
+            r"prijava.*do|dostava.*do|predaj.*do)\b"
+        ],
+    },
+    "likvidacija": {
+        "keywords": [
+            r"\b(likvidatur|likvidacij|kontrola.*račun|formajna.*kontrola|"
+            r"stručna.*kontrola|ovjer)\b"
+        ],
+    },
+    "accruals": {
+        "keywords": [
+            r"\b(pvr|avr|razgraničen|vremensko.*razgranič|"
+            r"unaprijed.*plaćen|odgođen)\b"
+        ],
+    },
+    "novcani_tokovi": {
+        "keywords": [
+            r"\b(novčan.*tok|cash.*flow|tijek.*novca|likvidnost.*plan|"
+            r"priljev|odljev)\b"
+        ],
+    },
+    "vision_llm": {
+        "keywords": [
+            r"\b(sken|skenira|ocr|prepozn.*tekst|čitaj.*sliku|"
+            r"qwen.*vl|vision)\b"
+        ],
+        "requires_file": True,
+    },
+    "fiskalizacija2": {
+        "keywords": [
+            r"\b(fiskalizacij|fiskalni|cis|jir|zki|qr.*kod|"
+            r"naplatni uređaj|blagajna.*fiskal)\b"
+        ],
+    },
+    "eracuni_parser": {
+        "keywords": [
+            r"\b(eračun.*pars|e-račun.*uvoz|pantheon|eracuni|"
+            r"erp.*uvoz|import.*xml.*račun)\b"
+        ],
+        "requires_file": True,
+    },
+    "universal_parser": {
+        "keywords": [
+            r"\b(parsiraj|pars.*datoteku|učitaj.*dokument|"
+            r"prepoznaj.*format|import.*datoteku)\b"
+        ],
+        "requires_file": True,
+    },
+    "outgoing_invoice": {
+        "keywords": [
+            r"\b(izlazn.*račun|ira|izdan.*račun|"
+            r"izlazn.*faktur|r-1.*izlaz|prodaj.*račun)\b"
+        ],
+    },
+    "gfi_prep": {
+        "keywords": [
+            r"\b(gfi.*priprema|pripremi.*gfi|godišnj.*izvješć.*kontrol|"
+            r"fina.*priprema)\b"
+        ],
+    },
+    "client_management": {
+        "keywords": [
+            r"\b(klijent.*registar|registar.*klijenat|novi.*klijent|"
+            r"erp.*postavk|klijent.*podaci)\b"
+        ],
+    },
+    "communication": {
+        "keywords": [
+            r"\b(pošalji.*mail|email.*obavijest|sms.*podsjetnik|"
+            r"automatsk.*poruk|šablon.*poruk)\b"
+        ],
+    },
+    "management_accounting": {
+        "keywords": [
+            r"\b(upravljačk.*računovodstv|troškovno.*mjesto|centar.*odgovorn|"
+            r"budžet|budget|controllin)\b"
+        ],
+    },
+    "business_plan": {
+        "keywords": [
+            r"\b(poslovn.*plan|break.*even|financijsk.*projekcij|"
+            r"investicijsk.*studij)\b"
+        ],
+    },
+    "network": {
+        "keywords": [
+            r"\b(mreža|mrežn|mdns|tailscale|vpn|firewall|"
+            r"nyx.*studio.*local)\b"
+        ],
+    },
+    "scalability": {
+        "keywords": [
+            r"\b(skalabilnost|load.*balanc|performans.*server|"
+            r"kapacitet|concurrent|paralelno)\b"
+        ],
+    },
+    "audit": {
+        "keywords": [
+            r"\b(revizij|audit.*trail|kontroln.*točk|compliance|"
+            r"trag.*promjen)\b"
+        ],
+    },
 }
 
 
@@ -316,6 +571,41 @@ class ModuleRouter:
             {"id": "place", "name": "Plaće", "desc": "Obračun plaća i JOPPD"},
             {"id": "amortizacija", "name": "Amortizacija", "desc": "Izračun i klasifikacija OS"},
             {"id": "export", "name": "ERP Export", "desc": "Izvoz za CPP/Synesis"},
+            {"id": "porez_dobit", "name": "Porez na dobit", "desc": "PD/PD-NN obrasci"},
+            {"id": "porez_dohodak", "name": "Porez na dohodak", "desc": "Godišnja prijava"},
+            {"id": "pdv_prijava", "name": "PDV prijava", "desc": "PP-PDV obrazac"},
+            {"id": "joppd", "name": "JOPPD", "desc": "XML za ePorezna"},
+            {"id": "payroll", "name": "Obračun plaća", "desc": "Bruto→neto, doprinosi"},
+            {"id": "bolovanje", "name": "Bolovanje", "desc": "HZZO obrasci, naknada"},
+            {"id": "drugi_dohodak", "name": "Drugi dohodak", "desc": "Ugovor o djelu, autorski"},
+            {"id": "osnovna_sredstva", "name": "Osnovna sredstva", "desc": "OS evidencija, amortizacija"},
+            {"id": "kompenzacije", "name": "Kompenzacije", "desc": "Jednostrane i multilateralne"},
+            {"id": "e_racun", "name": "E-račun", "desc": "UBL/CII generiranje"},
+            {"id": "peppol", "name": "Peppol", "desc": "AS4 protokol, EN 16931"},
+            {"id": "fiskalizacija2", "name": "Fiskalizacija", "desc": "CIS, QR kodovi"},
+            {"id": "intrastat", "name": "Intrastat", "desc": "DZS EU robna razmjena"},
+            {"id": "gfi_xml", "name": "GFI", "desc": "XML za FINA-u"},
+            {"id": "reports", "name": "Izvještaji", "desc": "Bilanca, RDG, bruto bilanca"},
+            {"id": "kpi", "name": "KPI", "desc": "Financijski pokazatelji"},
+            {"id": "fakturiranje", "name": "Fakturiranje", "desc": "Izlazni računi"},
+            {"id": "ledger", "name": "Glavna knjiga", "desc": "Dnevnik, analitika"},
+            {"id": "kadrovska", "name": "Kadrovska", "desc": "Evidencija zaposlenika"},
+            {"id": "deadlines", "name": "Rokovi", "desc": "Zakonski porezni rokovi"},
+            {"id": "likvidacija", "name": "Likvidatura", "desc": "Kontrola dokumenata"},
+            {"id": "accruals", "name": "PVR/AVR", "desc": "Vremensko razgraničenje"},
+            {"id": "novcani_tokovi", "name": "Novčani tokovi", "desc": "Cash flow izvještaj"},
+            {"id": "vision_llm", "name": "Vision AI", "desc": "OCR skenova (Qwen2.5-VL)"},
+            {"id": "universal_parser", "name": "Universal Parser", "desc": "Auto-detekcija formata"},
+            {"id": "eracuni_parser", "name": "eRačuni Parser", "desc": "Pantheon/eRačuni XML"},
+            {"id": "outgoing_invoice", "name": "Izlazni računi", "desc": "Validacija R1/R2"},
+            {"id": "gfi_prep", "name": "GFI priprema", "desc": "Kontrola prije GFI XML"},
+            {"id": "client_management", "name": "Klijenti", "desc": "Registar, ERP postavke"},
+            {"id": "communication", "name": "Komunikacija", "desc": "Email/SMS obavijesti"},
+            {"id": "management_accounting", "name": "Upravljačko RV", "desc": "Troškovna mjesta, budžet"},
+            {"id": "business_plan", "name": "Poslovni plan", "desc": "Projekcije, break-even"},
+            {"id": "network", "name": "Mreža", "desc": "mDNS, Tailscale, firewall"},
+            {"id": "scalability", "name": "Skalabilnost", "desc": "Load balancing, resursi"},
+            {"id": "audit", "name": "Revizijski trag", "desc": "Compliance, kontrolne točke"},
             {"id": "general", "name": "Općenito", "desc": "Slobodni razgovor"},
         ]
 

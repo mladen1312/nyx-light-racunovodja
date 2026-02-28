@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -145,10 +146,15 @@ async def lifespan(app: FastAPI):
 
     # Start nightly scheduler in background
     try:
-        from nyx_light.scheduler import NyxScheduler
-        state._scheduler = NyxScheduler()
+        from nyx_light.scheduler import setup_default_scheduler
+        from nyx_light.finetune.nightly_dpo import NightlyDPOTrainer
+        state.dpo_trainer = NightlyDPOTrainer(data_dir="data")
+        state._scheduler = setup_default_scheduler(
+            dpo_trainer=state.dpo_trainer,
+            backup_manager=state.backup,
+        )
         asyncio.create_task(state._scheduler.start())
-        logger.info("Noćni scheduler pokrenut")
+        logger.info("Noćni scheduler pokrenut (DPO @ 02:00, Backup @ 03:00)")
     except Exception as e:
         logger.warning("Scheduler not started: %s", e)
 
@@ -419,6 +425,144 @@ async def chat(req: ChatRequest, user=Depends(get_current_user)):
 
     return result
 
+# ═══════════════════════════════════════════
+# MODULE CARDS — structured data for chat UI
+# ═══════════════════════════════════════════
+
+def _build_module_card(module: str, sub_intent: str,
+                       data: dict, summary: str) -> Optional[dict]:
+    """Build structured card data for WebSocket chat UI.
+
+    Each module produces a different card type:
+    - kontiranje → konto suggestions with confidence
+    - blagajna → cash validation with limit check
+    - place → payroll breakdown
+    - pdv → VAT summary
+    - porez_dobit → tax calculation
+    - putni_nalog → travel expense breakdown
+    - deadlines → upcoming deadlines list
+    - bank → transaction summary
+    """
+    if not data:
+        return None
+
+    try:
+        card = {
+            "type": _card_type_for_module(module),
+            "title": summary or f"Modul: {module}",
+            "module": module,
+        }
+
+        if module == "kontiranje":
+            card["type"] = "konto"
+            card["rows"] = []
+            kd = data.get("konto_duguje") or data.get("duguje", "")
+            kp = data.get("konto_potrazuje") or data.get("potrazuje", "")
+            if kd:
+                card["rows"].append({"label": "Duguje", "value": str(kd), "icon": "📥"})
+            if kp:
+                card["rows"].append({"label": "Potražuje", "value": str(kp), "icon": "📤"})
+            if data.get("pdv_konto"):
+                card["rows"].append({"label": "PDV konto", "value": str(data["pdv_konto"]), "icon": "🧾"})
+            if data.get("confidence"):
+                card["confidence"] = data["confidence"]
+            if data.get("alternativni"):
+                card["alternatives"] = data["alternativni"][:3]
+
+        elif module == "blagajna":
+            card["type"] = "validation"
+            card["rows"] = [
+                {"label": "Iznos", "value": f"{data.get('iznos', '?')} EUR", "icon": "💶"},
+                {"label": "Limit 10K", "value": "✅ OK" if data.get("limit_ok") else "❌ PREKORAČEN", "icon": "⚠️"},
+            ]
+            if data.get("novi_saldo") is not None:
+                card["rows"].append({"label": "Novi saldo", "value": f"{data['novi_saldo']} EUR", "icon": "💰"})
+            card["status"] = "success" if data.get("valid") else "error"
+
+        elif module in ("place", "payroll"):
+            card["type"] = "payroll"
+            card["rows"] = []
+            for key, label, icon in [
+                ("bruto", "Bruto", "💰"), ("neto", "Neto", "💶"),
+                ("za_isplatu", "Za isplatu", "🏦"),
+                ("mio_1", "MIO I (20%)", "📊"), ("mio_2", "MIO II (0%)", "📊"),
+                ("zdravstveno", "Zdravstveno (16.5%)", "🏥"),
+                ("porez", "Porez na dohodak", "📋"),
+                ("prirez", "Prirez", "🏛️"),
+            ]:
+                if data.get(key) is not None:
+                    card["rows"].append({"label": label, "value": f"{data[key]} EUR", "icon": icon})
+
+        elif module == "pdv":
+            card["type"] = "tax"
+            card["rows"] = [
+                {"label": "Pretporez", "value": f"{data.get('pretporez', 0)} EUR", "icon": "📥"},
+                {"label": "Obveza", "value": f"{data.get('obveza', 0)} EUR", "icon": "📤"},
+                {"label": "Za uplatu/povrat", "value": f"{data.get('razlika', 0)} EUR", "icon": "💶"},
+            ]
+
+        elif module == "porez_dobit":
+            card["type"] = "tax"
+            card["rows"] = [
+                {"label": "Dobit", "value": f"{data.get('dobit', 0)} EUR", "icon": "📈"},
+                {"label": "Stopa", "value": f"{data.get('stopa', '?')}%", "icon": "📊"},
+                {"label": "Porez", "value": f"{data.get('porez', 0)} EUR", "icon": "🏛️"},
+            ]
+
+        elif module == "putni_nalog":
+            card["type"] = "travel"
+            card["rows"] = [
+                {"label": "Dnevnice", "value": f"{data.get('dnevnice', 0)} EUR", "icon": "🍽️"},
+                {"label": "Km naknada", "value": f"{data.get('km_naknada', 0)} EUR", "icon": "🚗"},
+                {"label": "Ukupno", "value": f"{data.get('ukupno', 0)} EUR", "icon": "💰"},
+            ]
+
+        elif module == "deadlines":
+            card["type"] = "list"
+            items = data if isinstance(data, list) else data.get("items", [])
+            card["items"] = [
+                {"text": f"{d.get('name', '')} — {d.get('due_date', '')}",
+                 "urgent": d.get("days_remaining", 99) <= 7}
+                for d in items[:5]
+            ]
+
+        elif module in ("bank", "banka"):
+            card["type"] = "table"
+            txns = data.get("transactions", [])[:5]
+            card["headers"] = ["Datum", "Opis", "Iznos"]
+            card["rows_table"] = [
+                [t.get("datum", ""), t.get("opis", "")[:40], f"{t.get('iznos', '')} EUR"]
+                for t in txns
+            ]
+            card["total"] = data.get("count", len(txns))
+
+        else:
+            # Generic card — show all key-value pairs
+            card["type"] = "generic"
+            card["rows"] = [
+                {"label": k, "value": str(v)[:100], "icon": "📋"}
+                for k, v in list(data.items())[:6]
+                if not k.startswith("_") and v is not None
+            ]
+
+        return card
+
+    except Exception as e:
+        logger.debug("Card build error (%s): %s", module, e)
+        return None
+
+
+def _card_type_for_module(module: str) -> str:
+    """Map module to card display type."""
+    return {
+        "kontiranje": "konto", "blagajna": "validation",
+        "place": "payroll", "payroll": "payroll",
+        "pdv": "tax", "porez_dobit": "tax",
+        "putni_nalog": "travel", "deadlines": "list",
+        "bank": "table", "banka": "table",
+    }.get(module, "generic")
+
+
 # WebSocket chat (streaming) — s JWT autentikacijom
 @app.websocket("/api/ws/chat")
 async def ws_chat(ws: WebSocket):
@@ -522,6 +666,21 @@ async def ws_chat(ws: WebSocket):
                             f"Modul '{route.module}' izvršen. Rezultat: {module_result.summary}. "
                             f"Podaci: {str(module_result.data)[:500]}"
                         )
+
+                    # ── Send Module Card BEFORE LLM streaming ──
+                    if module_result and module_result.success:
+                        card = _build_module_card(
+                            route.module, route.sub_intent,
+                            module_result.data, module_result.summary,
+                        )
+                        if card:
+                            await ws.send_json({
+                                "type": "module_card",
+                                "module": route.module,
+                                "confidence": round(route.confidence, 2),
+                                "card": card,
+                            })
+
                 elif route.confidence > 0.4 and route.module != "general":
                     context.semantic_facts.append(
                         f"[Router: moguć modul '{route.module}' "
@@ -626,6 +785,24 @@ async def approve(booking_id: str, user=Depends(require_permission("approve"))):
     ok = state.storage.approve_booking(booking_id, user["user_id"])
     if not ok:
         raise HTTPException(404, "Knjiženje nije pronađeno ili već obrađeno")
+
+    # Record DPO pair: approval = AI was correct (chosen = rejected = same)
+    try:
+        row = state.storage._conn.execute(
+            "SELECT * FROM bookings WHERE id=?", (booking_id,)
+        ).fetchone()
+        if row and hasattr(state, "dpo_trainer") and state.dpo_trainer:
+            b = dict(row)
+            prompt = f"Kontiranje: {b.get('opis', '')} | Tip: {b.get('document_type', '')} | Iznos: {b.get('iznos', '')}"
+            response = f"Duguje: {b.get('konto_duguje', '')} | Potražuje: {b.get('konto_potrazuje', '')}"
+            state.dpo_trainer.record_pair(
+                prompt=prompt, chosen=response, rejected=response,
+                client_id=b.get("client_id", ""), module="kontiranje",
+                correction_type="approved",
+            )
+    except Exception as e:
+        logger.debug("DPO pair (approve): %s", e)
+
     # Notify WS clients
     for ws in state.ws_connections.values():
         try:
@@ -636,9 +813,43 @@ async def approve(booking_id: str, user=Depends(require_permission("approve"))):
 
 @app.post("/api/reject/{booking_id}")
 async def reject(booking_id: str, req: ApprovalRequest = ApprovalRequest(), user=Depends(require_permission("reject"))):
+    # Get original before deleting
+    original = None
+    try:
+        row = state.storage._conn.execute(
+            "SELECT * FROM bookings WHERE id=?", (booking_id,)
+        ).fetchone()
+        if row:
+            original = dict(row)
+    except Exception:
+        pass
+
     ok = state.storage.reject_booking(booking_id, user["user_id"], req.reason)
     if not ok:
         raise HTTPException(404, "Knjiženje nije pronađeno ili već obrađeno")
+
+    # DPO pair: rejection = AI was completely wrong
+    try:
+        if original and hasattr(state, "dpo_trainer") and state.dpo_trainer:
+            prompt = (
+                f"Kontiranje: {original.get('opis', '')} | "
+                f"Tip: {original.get('document_type', '')} | "
+                f"Iznos: {original.get('iznos', '')}"
+            )
+            rejected = (
+                f"Duguje: {original.get('konto_duguje', '')} | "
+                f"Potražuje: {original.get('konto_potrazuje', '')}"
+            )
+            state.dpo_trainer.record_pair(
+                prompt=prompt,
+                chosen=f"ODBIJENO: {req.reason or 'Neispravno knjiženje'}",
+                rejected=rejected,
+                client_id=original.get("client_id", ""),
+                module="kontiranje", correction_type="rejected",
+            )
+    except Exception as e:
+        logger.debug("DPO pair (reject): %s", e)
+
     return {"status": "rejected", "booking_id": booking_id}
 
 @app.post("/api/correct/{booking_id}")
@@ -681,6 +892,33 @@ async def correct(booking_id: str, req: CorrectionRequest, user=Depends(require_
         document_type=original.get("document_type", ""),
         description=req.reason,
     )
+
+    # ── DPO pair: correction = AI was WRONG → critical training signal ──
+    try:
+        if hasattr(state, "dpo_trainer") and state.dpo_trainer:
+            prompt = (
+                f"Kontiranje: {original.get('opis', '')} | "
+                f"Tip: {original.get('document_type', '')} | "
+                f"Iznos: {original.get('iznos', '')} | "
+                f"Klijent: {original.get('client_id', '')}"
+            )
+            chosen = (
+                f"Duguje: {req.konto_duguje or original['konto_duguje']} | "
+                f"Potražuje: {req.konto_potrazuje or original['konto_potrazuje']}"
+            )
+            rejected = (
+                f"Duguje: {original.get('konto_duguje', '')} | "
+                f"Potražuje: {original.get('konto_potrazuje', '')}"
+            )
+            state.dpo_trainer.record_pair(
+                prompt=prompt, chosen=chosen, rejected=rejected,
+                client_id=original.get("client_id", ""),
+                module="kontiranje", correction_type="corrected",
+            )
+            logger.info("DPO pair recorded: %s → %s (was %s)",
+                        booking_id, chosen, rejected)
+    except Exception as e:
+        logger.debug("DPO pair (correct): %s", e)
 
     return {"status": "corrected", "booking_id": booking_id}
 
@@ -970,31 +1208,76 @@ async def restore_backup(backup_name: str, user=Depends(require_permission("back
 
 @app.get("/api/dpo/stats")
 async def dpo_stats(user=Depends(require_permission("view_audit"))):
-    try:
-        from nyx_light.finetune import NightlyDPOTrainer
-        dpo = NightlyDPOTrainer()
-        return dpo.get_stats()
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    """DPO statistike: parovi, runovi, adaptere."""
+    if hasattr(state, "dpo_trainer") and state.dpo_trainer:
+        stats = state.dpo_trainer.get_stats()
+        # Add scheduler info
+        if hasattr(state, "_scheduler") and state._scheduler:
+            for t in state._scheduler.tasks:
+                if t.name == "nightly_dpo":
+                    stats["scheduler"] = {
+                        "next_run": f"{t.hour:02d}:{t.minute:02d}",
+                        "last_run": t.last_run.isoformat() if t.last_run else None,
+                        "run_count": t.run_count,
+                        "error_count": t.error_count,
+                    }
+        return stats
+    return {"status": "not_initialized", "total_pairs": 0, "unused_pairs": 0}
 
 @app.get("/api/dpo/adapters")
 async def dpo_adapters(user=Depends(require_permission("update_model"))):
-    try:
-        from nyx_light.finetune import NightlyDPOTrainer
-        dpo = NightlyDPOTrainer()
-        return {"adapters": dpo.list_lora_adapters()}
-    except Exception as e:
-        return {"adapters": [], "error": str(e)}
+    """Lista LoRA adaptera generiranih DPO trainingom."""
+    if hasattr(state, "dpo_trainer") and state.dpo_trainer:
+        return {"adapters": state.dpo_trainer.list_lora_adapters()}
+    return {"adapters": []}
 
 @app.post("/api/dpo/train")
 async def dpo_train_manual(user=Depends(require_permission("update_model"))):
-    try:
-        from nyx_light.finetune import NightlyDPOTrainer
-        dpo = NightlyDPOTrainer()
-        result = await dpo.train_nightly()
+    """Ručno pokretanje DPO treninga (admin only)."""
+    if hasattr(state, "dpo_trainer") and state.dpo_trainer:
+        result = await state.dpo_trainer.train_nightly()
+
+        # Notify all WS clients about training result
+        for ws in state.ws_connections.values():
+            try:
+                await ws.send_json({
+                    "type": "system",
+                    "content": f"🧠 DPO training: {result.get('status', 'unknown')} "
+                               f"({result.get('pairs_used', 0)} parova)",
+                })
+            except Exception:
+                pass
+
         return result
+    return {"status": "error", "error": "DPO trainer not initialized"}
+
+@app.get("/api/dpo/history")
+async def dpo_history(user=Depends(require_permission("view_audit"))):
+    """Povijest svih DPO training runova."""
+    if not (hasattr(state, "dpo_trainer") and state.dpo_trainer):
+        return {"runs": []}
+    try:
+        conn = sqlite3.connect(str(state.dpo_trainer.db_path))
+        rows = conn.execute(
+            "SELECT run_id, date, pairs_count, duration_seconds, loss_start, loss_end, "
+            "lora_path, status, error FROM training_runs ORDER BY date DESC LIMIT 50"
+        ).fetchall()
+        conn.close()
+        return {"runs": [
+            {"run_id": r[0], "date": r[1], "pairs": r[2], "duration_s": r[3],
+             "loss_start": r[4], "loss_end": r[5], "lora_path": r[6],
+             "status": r[7], "error": r[8]}
+            for r in rows
+        ]}
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        return {"runs": [], "error": str(e)}
+
+@app.get("/api/scheduler/status")
+async def scheduler_status(user=Depends(require_permission("view_audit"))):
+    """Status noćnog schedulera."""
+    if hasattr(state, "_scheduler") and state._scheduler:
+        return state._scheduler.get_stats()
+    return {"running": False, "tasks": []}
 
 # ═══════════════════════════════════════════
 # RAG / ZAKONI
@@ -1063,14 +1346,8 @@ async def get_audit_log(limit: int = 100, user=Depends(require_permission("view_
     return {"items": []}
 
 # ═══════════════════════════════════════════
-# SCHEDULER
+# SCHEDULER (manual run)
 # ═══════════════════════════════════════════
-
-@app.get("/api/scheduler/status")
-async def scheduler_status(user=Depends(require_permission("view_audit"))):
-    if hasattr(state, '_scheduler') and state._scheduler:
-        return state._scheduler.get_stats()
-    return {"running": False, "note": "Scheduler nije pokrenut"}
 
 @app.post("/api/scheduler/run")
 async def scheduler_run_manual(task: str = "all", user=Depends(require_permission("backup"))):

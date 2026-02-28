@@ -121,6 +121,30 @@ body.light .chat-msg .bubble{border-color:#e2e8f0}
 .data-table th{background:var(--bg3);padding:8px 12px;text-align:left;color:var(--text2);font-weight:600;border-bottom:2px solid var(--border)}
 .data-table td{padding:8px 12px;border-bottom:1px solid var(--border)}
 .data-table tr:hover{background:var(--bg3)}
+.module-card{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 16px;max-width:420px;font-size:13px}
+.mc-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.mc-module{background:var(--accent);color:white;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.mc-conf{color:var(--text2);font-size:11px}
+.mc-title{font-weight:600;margin-bottom:10px;color:var(--text)}
+.mc-rows{display:flex;flex-direction:column;gap:6px}
+.mc-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+.mc-row:last-child{border-bottom:none}
+.mc-icon{font-size:14px;width:20px;text-align:center;flex-shrink:0}
+.mc-label{color:var(--text2);flex:1}
+.mc-value{font-weight:600;color:var(--text);text-align:right}
+.mc-konto{font-family:monospace;font-size:14px;color:var(--accent)}
+.mc-alt{margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--text2);font-size:12px}
+.mc-error{color:var(--red) !important}
+.mc-error .mc-value{color:var(--red)}
+.mc-status-error{margin-top:8px;padding:6px 10px;background:rgba(239,68,68,.1);border-radius:6px;color:var(--red);font-size:12px;font-weight:600}
+.mc-table{width:100%;border-collapse:collapse;margin:6px 0}
+.mc-table th{font-size:11px;color:var(--text2);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border)}
+.mc-table td{padding:4px 6px;font-size:12px}
+.mc-more{color:var(--text2);font-size:11px;text-align:center;margin-top:6px}
+.mc-list-item{padding:4px 0;border-bottom:1px solid var(--border)}
+.mc-list-item:last-child{border-bottom:none}
+.mc-urgent{color:var(--red);font-weight:600}
+.stream-bubble{min-height:20px;white-space:pre-wrap}
 .payroll-result{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-top:20px}
 .payroll-result .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
 .payroll-result .row.total{font-weight:700;font-size:16px;border-bottom:2px solid var(--accent)}
@@ -592,6 +616,7 @@ async function doLogin(){
   }catch(e){err.textContent='Server nije dostupan';err.style.display='block'}
 }
 function doLogout(){token='';currentUser=null;localStorage.removeItem('nyx_token');localStorage.removeItem('nyx_user');
+  if(window._chatWs){try{window._chatWs.close()}catch(e){}}window._chatWs=null;
   document.getElementById('app').classList.remove('active');document.getElementById('loginScreen').style.display='flex'}
 function showApp(){
   document.getElementById('loginScreen').style.display='none';
@@ -599,6 +624,7 @@ function showApp(){
   document.getElementById('userName').textContent=currentUser.display_name||currentUser.username;
   document.getElementById('userRole').textContent=currentUser.role;
   loadClients();loadPending();loadDashboard();loadDeadlines();loadClientSelects();
+  connectChatWs();
 }
 function authHeaders(){return{'Authorization':'Bearer '+token,'Content-Type':'application/json'}}
 
@@ -657,15 +683,142 @@ async function sendChat(){
   addChatMsg('user',msg);
   document.getElementById('chatTyping').classList.add('active');
   document.getElementById('chatSend').disabled=true;
-  try{
-    const r=await fetch(API+'/chat',{method:'POST',headers:authHeaders(),
-      body:JSON.stringify({message:msg,client_id:document.getElementById('chatClient').value})});
-    const d=await r.json();
-    addChatMsg('assistant',d.content||d.detail||'Greška');
-  }catch(e){addChatMsg('assistant','⚠️ Server nije dostupan: '+e.message)}
-  document.getElementById('chatTyping').classList.remove('active');
-  document.getElementById('chatSend').disabled=false;
+
+  // Try WebSocket streaming first, fallback to REST
+  if(window._chatWs && window._chatWs.readyState===WebSocket.OPEN){
+    _sendWsChat(msg);
+  } else {
+    try{
+      const r=await fetch(API+'/chat',{method:'POST',headers:authHeaders(),
+        body:JSON.stringify({message:msg,client_id:document.getElementById('chatClient').value})});
+      const d=await r.json();
+      addChatMsg('assistant',d.content||d.detail||'Greška');
+      if(d.module_data) renderModuleCard(d.module_data, d.module_used);
+    }catch(e){addChatMsg('assistant','⚠️ Server nije dostupan: '+e.message)}
+    document.getElementById('chatTyping').classList.remove('active');
+    document.getElementById('chatSend').disabled=false;
+  }
 }
+
+// ── WebSocket Chat Connection ──
+function connectChatWs(){
+  if(!token)return;
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  const url=`${proto}//${location.host}/api/ws/chat?token=${token}`;
+  try{
+    const ws=new WebSocket(url);
+    ws.onopen=()=>{window._chatWs=ws; console.log('WS chat connected')};
+    ws.onclose=()=>{window._chatWs=null; setTimeout(connectChatWs,5000)};
+    ws.onerror=()=>{window._chatWs=null};
+    ws.onmessage=(e)=>{
+      const d=JSON.parse(e.data);
+      if(d.type==='module_card'){
+        renderModuleCard(d.card, d.module);
+      } else if(d.type==='token'){
+        _appendStreamToken(d.content);
+      } else if(d.type==='done'){
+        _finishStream();
+        document.getElementById('chatTyping').classList.remove('active');
+        document.getElementById('chatSend').disabled=false;
+      } else if(d.type==='error'){
+        addChatMsg('assistant','⚠️ '+d.content);
+        document.getElementById('chatTyping').classList.remove('active');
+        document.getElementById('chatSend').disabled=false;
+      } else if(d.type==='approval'){
+        showToast('Knjiženje odobreno: '+d.booking_id,'success');
+        loadPending();
+      } else if(d.type==='system'){
+        showToast(d.content,'info');
+      }
+    };
+  }catch(e){console.warn('WS connect failed:',e)}
+}
+
+function _sendWsChat(msg){
+  if(!window._chatWs)return;
+  window._chatWs.send(JSON.stringify({
+    message:msg,
+    client_id:document.getElementById('chatClient').value
+  }));
+  // Prepare streaming bubble
+  window._streamBubble=null;
+}
+
+let _streamBubble=null;
+function _appendStreamToken(tok){
+  if(!_streamBubble){
+    const div=document.createElement('div');div.className='chat-msg assistant';
+    div.innerHTML=`<div class="avatar">N</div><div class="bubble stream-bubble"></div>`;
+    document.getElementById('chatMessages').appendChild(div);
+    _streamBubble=div.querySelector('.stream-bubble');
+  }
+  _streamBubble.textContent+=tok;
+  const c=document.getElementById('chatMessages');c.scrollTop=c.scrollHeight;
+}
+
+function _finishStream(){
+  if(_streamBubble){
+    // Convert plain text to escaped HTML
+    _streamBubble.innerHTML=escHtml(_streamBubble.textContent);
+  }
+  _streamBubble=null;
+}
+
+// ── Module Card Renderer ──
+function renderModuleCard(card, moduleName){
+  if(!card)return;
+  const c=document.getElementById('chatMessages');
+  const wrapper=document.createElement('div');
+  wrapper.className='chat-msg assistant';
+
+  let html='<div class="avatar">📊</div><div class="module-card">';
+  html+=`<div class="mc-header"><span class="mc-module">${escHtml(moduleName||card.module||'')}</span>`;
+  if(card.confidence) html+=`<span class="mc-conf">${Math.round(card.confidence*100)}%</span>`;
+  html+=`</div>`;
+  html+=`<div class="mc-title">${escHtml(card.title||'')}</div>`;
+
+  if(card.type==='konto'){
+    html+='<div class="mc-rows">';
+    (card.rows||[]).forEach(r=>{
+      html+=`<div class="mc-row"><span class="mc-icon">${r.icon||''}</span><span class="mc-label">${escHtml(r.label)}</span><span class="mc-value mc-konto">${escHtml(r.value)}</span></div>`;
+    });
+    html+='</div>';
+    if(card.alternatives&&card.alternatives.length){
+      html+='<div class="mc-alt">Alternativni: ';
+      html+=card.alternatives.map(a=>`${a.duguje||a.konto_duguje||'?'}/${a.potrazuje||a.konto_potrazuje||'?'}`).join(', ');
+      html+='</div>';
+    }
+  } else if(card.type==='table'){
+    html+='<table class="mc-table"><tr>';
+    (card.headers||[]).forEach(h=>{html+=`<th>${escHtml(h)}</th>`});
+    html+='</tr>';
+    (card.rows_table||[]).forEach(row=>{
+      html+='<tr>';row.forEach(cell=>{html+=`<td>${escHtml(String(cell))}</td>`});html+='</tr>';
+    });
+    html+='</table>';
+    if(card.total>5) html+=`<div class="mc-more">+ još ${card.total-5} transakcija</div>`;
+  } else if(card.type==='list'){
+    html+='<div class="mc-list">';
+    (card.items||[]).forEach(item=>{
+      html+=`<div class="mc-list-item${item.urgent?' mc-urgent':''}">${escHtml(item.text)}</div>`;
+    });
+    html+='</div>';
+  } else {
+    // Generic: rows with label/value
+    html+='<div class="mc-rows">';
+    (card.rows||[]).forEach(r=>{
+      const cls=card.status==='error'&&r.label.includes('Limit')?' mc-error':'';
+      html+=`<div class="mc-row${cls}"><span class="mc-icon">${r.icon||'📋'}</span><span class="mc-label">${escHtml(r.label)}</span><span class="mc-value">${escHtml(r.value)}</span></div>`;
+    });
+    html+='</div>';
+  }
+
+  if(card.status==='error') html+='<div class="mc-status-error">⚠️ Provjera nije prošla</div>';
+  html+='</div>';
+  wrapper.innerHTML=html;
+  c.appendChild(wrapper);c.scrollTop=c.scrollHeight;
+}
+
 function addChatMsg(role,text){
   const div=document.createElement('div');div.className='chat-msg '+role;
   div.innerHTML=`<div class="avatar">${role==='user'?'👤':'N'}</div><div class="bubble">${escHtml(text)}</div>`;

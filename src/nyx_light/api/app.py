@@ -191,13 +191,48 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── CORS (konfigurabilno za produkciju) ──
+_cors_origins = os.environ.get("NYX_ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Request Logging Middleware ──
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    """Log svaki request s trajanjem — za monitoring i debugging."""
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = (time.time() - start) * 1000
+
+    # Log samo API pozive (ne static)
+    if request.url.path.startswith("/api/"):
+        level = logging.WARNING if response.status_code >= 400 else logging.DEBUG
+        logger.log(
+            level,
+            "%s %s → %d (%.0fms)",
+            request.method, request.url.path,
+            response.status_code, duration_ms,
+        )
+    return response
+
+
+# ── Global Exception Handler ──
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Uhvati sve neobrađene iznimke — nikad ne pokazuj stack trace korisniku."""
+    logger.error("Unhandled: %s %s — %s: %s",
+                 request.method, request.url.path,
+                 type(exc).__name__, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Interna greška servera. Pokušajte ponovo ili kontaktirajte admina."},
+    )
 
 # Static files
 static_dir = Path(__file__).parent.parent.parent.parent / "static"

@@ -39,7 +39,7 @@ class TestModuleRouter:
         from nyx_light.router import ModuleRouter
         r = ModuleRouter()
         result = r.route("Koja je stopa PDV na hranu?")
-        assert result.module == "rag"
+        assert result.module == "pdv_prijava"
         assert result.confidence > 0.5
 
     def test_route_bank(self):
@@ -381,7 +381,7 @@ class TestNewEndpoints:
         resp = client.post("/api/route", headers=headers,
                           json={"message": "Kolika je stopa PDV-a?"})
         assert resp.status_code == 200
-        assert resp.json()["module"] in ("rag", "general")
+        assert resp.json()["module"] in ("pdv_prijava", "rag", "general")
 
     def test_modules_list(self, client, headers):
         resp = client.get("/api/modules", headers=headers)

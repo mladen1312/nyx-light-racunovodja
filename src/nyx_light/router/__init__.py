@@ -116,8 +116,9 @@ INTENT_PATTERNS = {
     "rag": {
         "keywords": [
             r"\b(zakon|propis|pravilnik|nn\s*\d|narodne novine|članak|stavak|"
-            r"mišljenje|porezna uprava|pu|hsfi|msfi|mrs|računovodstveni standard|"
-            r"pdv|stopa\s*(pdv|porez)|porez\w*\s*(dodanu|dobit|dohodak))\b"
+            r"mišljenje|porezna uprava|hsfi|msfi|mrs|računovodstveni standard|"
+            r"što kaže zakon|prema zakonu|pravni okvir|zakonsk)"
+            r"\b"
         ],
         "sub_intents": {
             "lookup": [r"(što kaže|prema zakonu|prema čl|propis)"],
@@ -127,13 +128,12 @@ INTENT_PATTERNS = {
     },
     "place": {
         "keywords": [
-            r"\b(plaća|placa|bruto|neto|joppd|doprinos|mio|zdravstven|"
+            r"\b(plaća|placa|bruto|neto|doprinos|mio|zdravstven|"
             r"osobni odbitak|prirez|porez.*dohodak|olakšic|uzdržavan|"
             r"minimaln.*plaća|obračun.*plaće|isplat.*plaće)\b"
         ],
         "sub_intents": {
             "calculate": [r"(izračun|obračun|koliko|bruto.*neto|neto.*bruto)"],
-            "joppd": [r"(joppd|obrazac|prijav)"],
             "deductions": [r"(odbitak|olakšic|uzdržavan)"],
         },
     },
@@ -180,19 +180,23 @@ INTENT_PATTERNS = {
     "pdv_prijava": {
         "keywords": [
             r"\b(pdv.*prijav|pp-pdv|obrazac.*pdv|pdv.*obrazac|"
-            r"pretporez|povrat.*pdv|knjiga.*ura|knjiga.*ira)\b"
+            r"pretporez|povrat.*pdv|knjiga.*ura|knjiga.*ira|"
+            r"pdv\s*(obračun|izračun|kalkul|generiraj|pripremi)|"
+            r"porez.*dodanu.*vrijednost|pdv\b)\b"
         ],
         "sub_intents": {
-            "generate": [r"(generiraj|kreiraj|pripremi)"],
+            "generate": [r"(generiraj|kreiraj|pripremi|napravi)"],
+            "calculate": [r"(izračun|obračun|koliko)"],
         },
     },
     "joppd": {
         "keywords": [
             r"\b(joppd|obrazac.*joppd|joppd.*obrazac|stranica.*[ab]|"
-            r"eporezna.*joppd|doprinosi.*obrazac)\b"
+            r"eporezna.*joppd|doprinosi.*obrazac|"
+            r"joppd\s*(generiraj|pripremi|kreiraj)|xml.*joppd)\b"
         ],
         "sub_intents": {
-            "generate": [r"(generiraj|kreiraj|pripremi)"],
+            "generate": [r"(generiraj|kreiraj|pripremi|napravi)"],
         },
     },
     "payroll": {
@@ -500,8 +504,20 @@ class ModuleRouter:
             entities = self._extract_entities(message)
             return RouteResult(module="general", confidence=0.3, entities=entities)
 
-        # Sort by confidence
-        scores.sort(key=lambda x: x[1], reverse=True)
+        # Priority: specific modules beat general catch-all modules on ties
+        # Higher priority = preferred when confidence is equal
+        MODULE_PRIORITY = {
+            "pdv_prijava": 10, "joppd": 10, "porez_dobit": 10,
+            "porez_dohodak": 10, "kontiranje": 9, "blagajna": 9,
+            "putni_nalozi": 9, "bank_parser": 9, "payroll": 9,
+            "bolovanje": 9, "deadlines": 8, "osnovna_sredstva": 8,
+            "amortizacija": 8, "fakturiranje": 8, "gfi_xml": 8,
+            "ios": 8, "kompenzacije": 8, "fiskalizacija2": 8,
+            "place": 5, "rag": 3, "general": 1,
+        }
+
+        # Sort by confidence first, then by priority for tie-breaking
+        scores.sort(key=lambda x: (x[1], MODULE_PRIORITY.get(x[0], 5)), reverse=True)
         best = scores[0]
 
         # Extract entities

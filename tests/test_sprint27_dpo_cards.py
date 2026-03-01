@@ -26,17 +26,21 @@ class TestDPOPairRecording:
     """Test da approve/correct/reject kreiraju DPO parove."""
 
     def test_dpo_trainer_init(self):
+        import shutil
         from nyx_light.finetune.nightly_dpo import NightlyDPOTrainer
-        trainer = NightlyDPOTrainer(data_dir="/tmp/nyx-test-dpo")
-        assert trainer.db_path.exists() or True  # Path object
+        d = f"/tmp/nyx-test-dpo-init-{int(__import__('time').time())}"
+        trainer = NightlyDPOTrainer(data_dir=d)
         stats = trainer.get_stats()
         assert "total_pairs" in stats
         assert "unused_pairs" in stats
         assert "ready_for_training" in stats
+        shutil.rmtree(d, ignore_errors=True)
 
     def test_record_pair(self):
+        import shutil
         from nyx_light.finetune.nightly_dpo import NightlyDPOTrainer
-        trainer = NightlyDPOTrainer(data_dir="/tmp/nyx-test-dpo-rec")
+        d = f"/tmp/nyx-test-dpo-rec-{int(__import__('time').time())}"
+        trainer = NightlyDPOTrainer(data_dir=d)
         trainer.record_pair(
             prompt="Kontiranje: Uredski materijal | Tip: URA | Iznos: 1250",
             chosen="Duguje: 4010 | Potražuje: 2200",
@@ -48,6 +52,7 @@ class TestDPOPairRecording:
         stats = trainer.get_stats()
         assert stats["total_pairs"] >= 1
         assert stats["unused_pairs"] >= 1
+        shutil.rmtree(d, ignore_errors=True)
 
     def test_collect_unused_pairs(self):
         import shutil
@@ -120,18 +125,20 @@ class TestDPOSchedulerWiring:
     """Test da scheduler ima DPO task."""
 
     def test_setup_default_scheduler_with_dpo(self):
+        import shutil
         from nyx_light.scheduler import setup_default_scheduler
         from nyx_light.finetune.nightly_dpo import NightlyDPOTrainer
-        trainer = NightlyDPOTrainer(data_dir="/tmp/nyx-test-sched")
+        d = f"/tmp/nyx-test-sched-{int(__import__('time').time())}"
+        trainer = NightlyDPOTrainer(data_dir=d)
         scheduler = setup_default_scheduler(dpo_trainer=trainer)
         task_names = [t.name for t in scheduler.tasks]
         assert "nightly_dpo" in task_names
 
-        # Check schedule time
         dpo_task = [t for t in scheduler.tasks if t.name == "nightly_dpo"][0]
         assert dpo_task.hour == 2
         assert dpo_task.minute == 0
         assert dpo_task.func is not None
+        shutil.rmtree(d, ignore_errors=True)
 
     def test_scheduler_has_backup_task(self):
         from nyx_light.scheduler import setup_default_scheduler

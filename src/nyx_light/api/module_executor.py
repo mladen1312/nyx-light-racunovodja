@@ -25,6 +25,7 @@ Podržani moduli (svi 44):
            communication, kadrovska, deadlines, web_ui, place
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -295,26 +296,32 @@ class ModuleExecutor:
         )
 
     def _handle_osnovna_sredstva(self, sub_intent, data, client_id, user_id):
-        from nyx_light.modules.osnovna_sredstva import OsnovnaSredstvaEngine
+        from nyx_light.modules.osnovna_sredstva import OsnovnaSredstvaEngine, AMORTIZACIJSKE_STOPE
         engine = OsnovnaSredstvaEngine()
 
         if data.get("nabavna_vrijednost") or data.get("naziv"):
-            result = engine.calculate_depreciation(
-                nabavna_vrijednost=data.get("nabavna_vrijednost", 0),
-                skupina=data.get("skupina", ""),
-                datum_nabave=data.get("datum_nabave", ""),
-                naziv=data.get("naziv", ""),
-            )
+            asset_data = {
+                "nabavna_vrijednost": float(data.get("nabavna_vrijednost", 0)),
+                "vrsta": data.get("vrsta", data.get("skupina", "uredska_oprema")),
+                "naziv": data.get("naziv", "Nepoznato sredstvo"),
+                "datum_nabave": data.get("datum_nabave", ""),
+                "lokacija": data.get("lokacija", ""),
+            }
+            result = engine.add_asset(asset_data)
             return ModuleResult(
-                success=True, module="osnovna_sredstva", action="calculate",
+                success=True, module="osnovna_sredstva", action="add_asset",
                 data=result if isinstance(result, dict) else {"raw": str(result)},
-                summary=f"Amortizacija: {result.get('godisnja_amortizacija', '?')} EUR/god",
-                llm_context=f"OS izračun: {result}",
+                summary=f"OS: {result.get('message', result.get('naziv', '?'))} — {result.get('godisnja_stopa', '?')}% godišnje",
+                llm_context=f"Osnovno sredstvo dodano: {json.dumps(result, ensure_ascii=False, default=str)}",
             )
+
+        # Popis stopa amortizacije
+        stope_info = {k: f"{v['stopa']}% ({v['vijek']} god)" for k, v in AMORTIZACIJSKE_STOPE.items()}
         return ModuleResult(
             success=True, module="osnovna_sredstva", action="info",
-            summary="Za izračun amortizacije potrebni: nabavna vrijednost, skupina, datum nabave.",
-            llm_context="Korisnik pita o osnovnim sredstvima.",
+            data={"stope": stope_info, "prag_dugotrajna": 665.0},
+            summary="Za izračun amortizacije potrebni: nabavna vrijednost, vrsta (skupina), datum nabave.",
+            llm_context=f"Amortizacijske stope RH: {json.dumps(stope_info, ensure_ascii=False)}. Prag dugotrajne imovine: 665 EUR.",
         )
 
     def _handle_ledger(self, sub_intent, data, client_id, user_id):
@@ -698,12 +705,52 @@ class ModuleExecutor:
         )
 
     def _handle_rag(self, sub_intent, data, client_id, user_id):
-        """RAG se obrađuje posebno u chat flow-u, ovo je fallback."""
-        return ModuleResult(
-            success=True, module="rag", action="search",
-            summary="RAG pretraga zakona aktivna. Postavi pitanje o zakonu.",
-            llm_context="RAG modul aktiviran — pretraga zakona RH.",
-        )
+        """RAG pretraga zakona RH s vremenskim kontekstom."""
+        from nyx_light.modules.rag import TimeAwareRAG
+        rag = TimeAwareRAG()
+        query = data.get("query", data.get("message", data.get("text", "")))
+        query_date = data.get("date", data.get("datum", ""))
+        if not query:
+            return ModuleResult(
+                success=True, module="rag", action="search",
+                summary="RAG pretraga zakona aktivna. Postavi pitanje o zakonu RH.",
+                llm_context="RAG modul aktiviran — čeka upit o zakonima.",
+            )
+        try:
+            result = rag.search(query, event_date=query_date)
+            chunks_data = []
+            for i, chunk in enumerate(result.chunks[:5]):
+                chunks_data.append({
+                    "zakon": chunk.law_short,
+                    "clanak": chunk.article,
+                    "naslov": chunk.title,
+                    "sadrzaj": chunk.content[:200],
+                    "nn": chunk.nn_reference,
+                    "valid_from": chunk.valid_from,
+                    "valid_to": chunk.valid_to or "na snazi",
+                    "relevance": round(result.relevance_scores[i], 2) if i < len(result.relevance_scores) else 0,
+                })
+            citations = result.citations[:5]
+            return ModuleResult(
+                success=True, module="rag", action="search",
+                data={"chunks": chunks_data, "answer": result.answer,
+                      "citations": citations, "query": query,
+                      "search_time_ms": round(result.search_time_ms, 1)},
+                summary=result.answer,
+                llm_context=(
+                    f"RAG pronašao {len(chunks_data)} relevantnih zakonskih odredbi.\n"
+                    f"Odgovor: {result.answer}\n"
+                    f"Izvori: {'; '.join(citations)}\n"
+                    "Citiraj izvore u odgovoru korisniku."
+                ),
+            )
+        except Exception as e:
+            logger.error("RAG search failed: %s", e)
+            return ModuleResult(
+                success=False, module="rag", action="search",
+                errors=[str(e)],
+                summary=f"Greška u RAG pretrazi: {e}",
+            )
 
     def _handle_vision_llm(self, sub_intent, data, client_id, user_id):
         from nyx_light.modules.vision_llm import VisionLLMClient
@@ -733,10 +780,21 @@ class ModuleExecutor:
         )
 
     def _handle_web_ui(self, sub_intent, data, client_id, user_id):
+        from nyx_light.modules.web_ui import UISessionManager, NotificationManager, UIConfig
+        session_mgr = UISessionManager()
+        notif_mgr = NotificationManager()
+        config = UIConfig()
+        active_sessions = session_mgr.get_stats() if hasattr(session_mgr, 'get_stats') else {}
+        pending_notifs = notif_mgr.get_stats() if hasattr(notif_mgr, 'get_stats') else {}
         return ModuleResult(
-            success=True, module="web_ui", action="info",
-            summary="Web UI: React dashboard, WebSocket chat, HITL workflow.",
-            llm_context="Web UI modul.",
+            success=True, module="web_ui", action="status",
+            data={"theme": config.theme if hasattr(config, 'theme') else "light",
+                  "sessions": active_sessions,
+                  "notifications": pending_notifs,
+                  "features": ["websocket_chat", "module_cards", "hitl_workflow",
+                               "dpo_dashboard", "deadline_alerts"]},
+            summary="Web UI aktivan: WebSocket chat, module cards, HITL workflow.",
+            llm_context="Web UI modul — dashboard status i konfiguracija.",
         )
 
     # ═══════════════════════════════════════════
@@ -744,10 +802,20 @@ class ModuleExecutor:
     # ═══════════════════════════════════════════
 
     def _handle_general(self, sub_intent, data, client_id, user_id):
+        """Općeniti upit — LLM odgovara uz kontekst klijenta."""
+        message = data.get("message", data.get("query", data.get("text", "")))
+        context_parts = []
+        if client_id:
+            context_parts.append(f"Klijent: {client_id}")
+        if user_id:
+            context_parts.append(f"Korisnik: {user_id}")
+        context_parts.append("Nema specifičnog modula — koristi opće računovodstveno znanje.")
+        context_parts.append("Ako upit zahtijeva zakonski odgovor, napomeni korisniku da koristi RAG pretragu.")
         return ModuleResult(
             success=True, module="general", action="chat",
+            data={"message": message, "client_id": client_id},
             summary="Općeniti razgovor — LLM odgovara slobodno.",
-            llm_context="Nema specifičnog modula, koristi opće znanje.",
+            llm_context="\n".join(context_parts),
         )
 
     def _handle_export(self, sub_intent, data, client_id, user_id):

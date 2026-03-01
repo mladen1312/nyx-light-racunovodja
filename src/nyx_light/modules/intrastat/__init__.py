@@ -14,11 +14,27 @@ Predaja: DZS (Državni zavod za statistiku) putem web aplikacije
 Referenca: Zakon o službenoj statistici, Uredba EU 2019/2152
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("nyx_light.modules.intrastat")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 # Pragovi za obvezno izvještavanje
 PRAG_PRIMITAK = 400_000.0  # EUR godišnje
@@ -183,3 +199,141 @@ class IntrastatEngine:
 
     def get_stats(self):
         return {"intrastat_generated": self._count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Pragovi obveze, CN8 šifre, DZS validacija
+# ════════════════════════════════════════════════════════
+
+from datetime import date
+
+# Pragovi za Intrastat prijavu 2026. (DZS)
+PRAG_OTPREMA = 400000     # EUR godišnje za otpremu
+PRAG_PRIMITAK = 300000    # EUR godišnje za primitak
+
+# Vrsta posla
+VRSTA_POSLA = {
+    "11": "Kupnja/prodaja",
+    "12": "Povrat robe",
+    "21": "Besplatna isporuka",
+    "31": "Prelazak granice bez promjene vlasništva (dorada)",
+    "41": "Isporuka nakon dorade",
+    "51": "Popravak",
+    "71": "Financijski leasing",
+    "91": "Najam (operativni leasing)",
+}
+
+# Uvjeti isporuke (Incoterms 2020)
+INCOTERMS = ["EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP",
+             "FAS", "FOB", "CFR", "CIF"]
+
+# Način prijevoza
+NACIN_PRIJEVOZA = {
+    "1": "Pomorski",
+    "2": "Željeznički",
+    "3": "Cestovni",
+    "4": "Zračni",
+    "5": "Poštanska pošiljka",
+    "7": "Fiksne instalacije (cjevovod, dalekovod)",
+    "8": "Unutarnji plovni putovi",
+    "9": "Vlastiti pogon",
+}
+
+
+class IntrastatValidator:
+    """Validacija Intrastat prijave za DZS."""
+
+    @staticmethod
+    def check_threshold(
+        otpreme_godisnje: float = 0,
+        primitci_godisnje: float = 0,
+    ) -> dict:
+        """Provjeri da li subjekt ima obvezu Intrastat prijave."""
+        obveza_otprema = otpreme_godisnje >= PRAG_OTPREMA
+        obveza_primitak = primitci_godisnje >= PRAG_PRIMITAK
+        return {
+            "obveza_otprema": obveza_otprema,
+            "obveza_primitak": obveza_primitak,
+            "otpreme_godisnje": _r2(_d(otpreme_godisnje)),
+            "primitci_godisnje": _r2(_d(primitci_godisnje)),
+            "prag_otprema": PRAG_OTPREMA,
+            "prag_primitak": PRAG_PRIMITAK,
+            "napomena": (
+                "Intrastat prijava se podnosi DZS-u do 20. u mjesecu "
+                "za prethodni mjesec. Obrazac IDO-1 (otprema) / IDP-1 (primitak)."
+            ),
+        }
+
+    @staticmethod
+    def validate_stavka(stavka: dict) -> List[dict]:
+        """Validiraj jednu Intrastat stavku."""
+        errors = []
+
+        # CN8 šifra — 8 znamenki
+        cn8 = stavka.get("cn8", "")
+        if not cn8 or len(cn8) != 8 or not cn8.isdigit():
+            errors.append({
+                "field": "cn8", "msg": f"CN8 šifra mora imati 8 znamenki: '{cn8}'",
+                "severity": "error",
+            })
+
+        # Zemlja partnera — ISO 2
+        zemlja = stavka.get("zemlja_partnera", "")
+        eu_zemlje = {"AT","BE","BG","CY","CZ","DE","DK","EE","ES","FI","FR",
+                     "GR","HU","IE","IT","LT","LU","LV","MT","NL","PL","PT",
+                     "RO","SE","SI","SK"}
+        if zemlja and zemlja not in eu_zemlje:
+            errors.append({
+                "field": "zemlja_partnera",
+                "msg": f"Zemlja '{zemlja}' nije EU članica ili nije ISO format",
+                "severity": "error",
+            })
+
+        # Masa u kg
+        masa = stavka.get("masa_kg", 0)
+        if masa <= 0:
+            errors.append({
+                "field": "masa_kg", "msg": "Masa mora biti > 0 kg",
+                "severity": "warning",
+            })
+
+        # Vrijednost
+        vrijednost = stavka.get("fakturna_vrijednost", 0)
+        if vrijednost <= 0:
+            errors.append({
+                "field": "fakturna_vrijednost", "msg": "Fakturna vrijednost mora biti > 0",
+                "severity": "error",
+            })
+
+        # Vrsta posla
+        vp = stavka.get("vrsta_posla", "")
+        if vp and vp not in VRSTA_POSLA:
+            errors.append({
+                "field": "vrsta_posla",
+                "msg": f"Nepoznata vrsta posla: '{vp}'. Dopuštene: {list(VRSTA_POSLA.keys())}",
+                "severity": "error",
+            })
+
+        return errors
+
+    @staticmethod
+    def summary_monthly(stavke: list) -> dict:
+        """Sumarni pregled za mjesečnu prijavu."""
+        total_otprema = _d(0)
+        total_primitak = _d(0)
+        zemlje = set()
+        for s in stavke:
+            zemlje.add(s.get("zemlja_partnera", "??"))
+            val = _d(s.get("fakturna_vrijednost", 0))
+            if s.get("smjer") == "otprema":
+                total_otprema += val
+            else:
+                total_primitak += val
+        return {
+            "otprema": _r2(total_otprema),
+            "primitak": _r2(total_primitak),
+            "ukupno": _r2(total_otprema + total_primitak),
+            "broj_stavki": len(stavke),
+            "zemlje": sorted(zemlje),
+            "rok_predaje": f"20. u sljedećem mjesecu",
+        }

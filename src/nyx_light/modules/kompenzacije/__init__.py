@@ -17,12 +17,28 @@ Proces:
   5. Evidentiraj knjiženja (zatvaranje stavki)
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("nyx_light.modules.kompenzacije")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 
 @dataclass
@@ -256,3 +272,121 @@ class KompenzacijeEngine:
 
     def get_stats(self) -> Dict[str, Any]:
         return {**self._stats}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Multilateralna kompenzacija, zakonska validacija, OIB chain
+# ════════════════════════════════════════════════════════
+
+from datetime import date
+
+# Zakonska regulativa — Zakon o obveznim odnosima (ZOO) čl. 195-202
+# Kompenzacija je dopuštena kad su tražbine dospjele, istovrsne i uzajamne.
+# Multilateralna: FINA provodi svakog 1. i 15. u mjesecu.
+
+FINA_MULTILATERALNA_DANI = [1, 15]  # Dani u mjesecu kad FINA provodi MK
+
+
+class KompenzacijaValidator:
+    """Validacija kompenzacija prema ZOO i FINA pravilima."""
+
+    @staticmethod
+    def validate_bilateralna(
+        nase_potrazivanje: float,
+        njihovo_potrazivanje: float,
+        nas_oib: str,
+        partner_oib: str,
+        datum_dospijeca_nase: str = "",
+        datum_dospijeca_njihovo: str = "",
+    ) -> dict:
+        """Provjeri uvjete za bilateralnu kompenzaciju."""
+        errors = []
+        warnings = []
+
+        # 1. Obje tražbine moraju biti dospjele
+        today = date.today()
+        if datum_dospijeca_nase:
+            try:
+                d = date.fromisoformat(datum_dospijeca_nase)
+                if d > today:
+                    errors.append("Naša tražbina još nije dospjela")
+            except ValueError:
+                pass
+        if datum_dospijeca_njihovo:
+            try:
+                d = date.fromisoformat(datum_dospijeca_njihovo)
+                if d > today:
+                    errors.append("Njihova tražbina još nije dospjela")
+            except ValueError:
+                pass
+
+        # 2. OIB provjera
+        for label, oib in [("Naš", nas_oib), ("Partner", partner_oib)]:
+            if oib and (len(oib) != 11 or not oib.isdigit()):
+                errors.append(f"{label} OIB neispravan: {oib}")
+
+        # 3. Iznos kompenzacije = min(naše, njihovo)
+        iznos_komp = _r2(min(_d(nase_potrazivanje), _d(njihovo_potrazivanje)))
+        ostatak_nase = _r2(_d(nase_potrazivanje) - _d(iznos_komp))
+        ostatak_njihovo = _r2(_d(njihovo_potrazivanje) - _d(iznos_komp))
+
+        if iznos_komp <= 0:
+            errors.append("Iznos kompenzacije mora biti pozitivan")
+
+        # 4. Upozorenje ako iznos > 5000 EUR (moguća revizija)
+        if iznos_komp > 5000:
+            warnings.append(f"Kompenzacija {iznos_komp} EUR > 5000 EUR — revizijski značajan iznos")
+
+        return {
+            "valid": len(errors) == 0,
+            "iznos_kompenzacije": iznos_komp,
+            "ostatak_nase_potrazivanje": ostatak_nase,
+            "ostatak_njihovo_potrazivanje": ostatak_njihovo,
+            "nas_oib": nas_oib,
+            "partner_oib": partner_oib,
+            "datum": today.isoformat(),
+            "errors": errors,
+            "warnings": warnings,
+            "zakonski_temelj": "ZOO čl. 195-202",
+        }
+
+    @staticmethod
+    def next_fina_multilateralna(today: date = None) -> dict:
+        """Sljedeći datum FINA multilateralne kompenzacije."""
+        today = today or date.today()
+        for d in FINA_MULTILATERALNA_DANI:
+            candidate = date(today.year, today.month, d)
+            if candidate > today:
+                days_left = (candidate - today).days
+                return {"date": candidate.isoformat(), "days_left": days_left}
+        # Sljedeći mjesec
+        m = today.month + 1
+        y = today.year
+        if m > 12:
+            m = 1; y += 1
+        candidate = date(y, m, FINA_MULTILATERALNA_DANI[0])
+        return {"date": candidate.isoformat(), "days_left": (candidate - today).days}
+
+    @staticmethod
+    def generate_izjava(
+        nas_oib: str, nas_naziv: str,
+        partner_oib: str, partner_naziv: str,
+        iznos: float, stavke_nase: list, stavke_njihove: list,
+    ) -> dict:
+        """Generiraj strukturu za Izjavu o kompenzaciji."""
+        return {
+            "tip": "bilateralna_kompenzacija",
+            "datum": date.today().isoformat(),
+            "strana_a": {"oib": nas_oib, "naziv": nas_naziv},
+            "strana_b": {"oib": partner_oib, "naziv": partner_naziv},
+            "iznos_kompenzacije": _r2(_d(iznos)),
+            "stavke_strana_a": stavke_nase,
+            "stavke_strana_b": stavke_njihove,
+            "napomena": (
+                "Sukladno čl. 195.-202. Zakona o obveznim odnosima, "
+                "stranke suglasno kompenziraju međusobne tražbine."
+            ),
+            "potpis_a": "__________________",
+            "potpis_b": "__________________",
+            "requires_signature": True,
+        }

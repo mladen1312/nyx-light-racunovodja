@@ -11,12 +11,28 @@ Priprema podataka za PDV prijavu na ePorezna:
 NAPOMENA: Ovaj modul PRIPREMA podatke — predaju na ePorezna radi računovođa.
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List
 
 logger = logging.getLogger("nyx_light.modules.pdv_prijava")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 
 @dataclass
@@ -203,3 +219,109 @@ class PDVPrijavaEngine:
 
     def get_stats(self):
         return {"pdv_generated": self._generation_count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Nepriznati pretporez, validacija, reprezentacija
+# ════════════════════════════════════════════════════════
+
+# Stope PDV-a u RH (2026.)
+PDV_STOPE = {25.0, 13.0, 5.0, 0.0}
+
+# Nepriznati pretporez — čl. 61 ZPDV
+NEPRIZNATI_PRETPOREZ = {
+    "reprezentacija": 0.50,       # 50% PDV-a na reprezentaciju NIJE priznat
+    "osobni_automobil": 0.50,     # 50% PDV-a na osobni auto NIJE priznat
+    "osobni_auto_leasing": 0.50,  # 50% PDV-a na leasing osobnog auta
+}
+
+
+def validate_oib(oib: str) -> bool:
+    """Validacija OIB-a po ISO 7064, MOD 11,10."""
+    if not oib or len(oib) != 11 or not oib.isdigit():
+        return False
+    a = 10
+    for digit in oib[:10]:
+        a = (a + int(digit)) % 10
+        if a == 0:
+            a = 10
+        a = (a * 2) % 11
+    kontrolna = (11 - a) % 10
+    return kontrolna == int(oib[10])
+
+
+class PDVValidator:
+    """Validacija PDV stavki prije prijave."""
+
+    VALIDATION_RULES = [
+        ("oib_valid", "OIB partnera mora biti validan (11 znamenki, ISO 7064)"),
+        ("stopa_valid", "PDV stopa mora biti 25%, 13%, 5% ili 0%"),
+        ("iznos_match", "PDV iznos = osnovica × stopa (tolerancija ±0.02 EUR)"),
+        ("datum_valid", "Datum računa mora biti unutar perioda prijave"),
+        ("eu_vat_id", "EU transakcije moraju imati VAT ID partnera"),
+    ]
+
+    @staticmethod
+    def validate_stavka(stavka: PDVStavka, period: str = "") -> List[Dict]:
+        """Validiraj jednu PDV stavku."""
+        errors = []
+
+        # OIB provjera
+        if stavka.oib_partnera and not stavka.eu_transakcija:
+            if not validate_oib(stavka.oib_partnera):
+                errors.append({
+                    "rule": "oib_valid",
+                    "msg": f"Neispravan OIB: {stavka.oib_partnera}",
+                    "severity": "error",
+                })
+
+        # Stopa provjera
+        if stavka.pdv_stopa not in PDV_STOPE:
+            errors.append({
+                "rule": "stopa_valid",
+                "msg": f"Nepoznata stopa: {stavka.pdv_stopa}%",
+                "severity": "error",
+            })
+
+        # Iznos = osnovica × stopa
+        if stavka.osnovica > 0 and stavka.pdv_stopa > 0:
+            expected = _r2(_d(stavka.osnovica) * _d(stavka.pdv_stopa) / _d(100))
+            diff = abs(stavka.pdv_iznos - expected)
+            if diff > 0.02:
+                errors.append({
+                    "rule": "iznos_match",
+                    "msg": f"PDV iznos {stavka.pdv_iznos} ≠ {expected} (razlika {diff:.2f})",
+                    "severity": "warning",
+                })
+
+        # EU VAT ID
+        if stavka.eu_transakcija and not stavka.oib_partnera:
+            errors.append({
+                "rule": "eu_vat_id",
+                "msg": "EU transakcija bez VAT ID partnera",
+                "severity": "error",
+            })
+
+        return errors
+
+    @staticmethod
+    def adjust_pretporez_representacija(stavke: List[PDVStavka]) -> List[Dict]:
+        """Izračunaj nepriznati pretporez za reprezentaciju i osobna vozila."""
+        adjustments = []
+        for s in stavke:
+            if s.tip != "ulazni" or s.pdv_iznos <= 0:
+                continue
+            kat = s.kategorija.lower() if s.kategorija else ""
+            for key, pct in NEPRIZNATI_PRETPOREZ.items():
+                if key in kat:
+                    nepriznati = _r2(_d(s.pdv_iznos) * _d(pct))
+                    adjustments.append({
+                        "racun": s.broj_racuna,
+                        "kategorija": key,
+                        "pdv_iznos": s.pdv_iznos,
+                        "nepriznati_pct": pct * 100,
+                        "nepriznati_iznos": nepriznati,
+                        "priznati_iznos": _r2(_d(s.pdv_iznos) - _d(nepriznati)),
+                        "zakonski_temelj": "čl. 61 ZPDV",
+                    })
+        return adjustments

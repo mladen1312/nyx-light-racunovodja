@@ -17,11 +17,27 @@ Postupak:
 Referenca: Zakon o trgovačkim društvima (čl. 369.-381.)
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 logger = logging.getLogger("nyx_light.modules.likvidacija")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 
 @dataclass
@@ -177,3 +193,152 @@ class LikvidacijaEngine:
 
     def get_stats(self):
         return {"active_liquidations": len(self._active)}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Invoice matching, approval workflow, aging
+# ════════════════════════════════════════════════════════
+
+from datetime import date, timedelta
+from enum import Enum
+
+
+class InvoiceStatus(str, Enum):
+    PRIMLJEN = "primljen"          # Račun zaprimljen
+    U_OBRADI = "u_obradi"         # AI obradio, čeka provjeru
+    ODOBREN = "odobren"           # Računovođa odobrio
+    KNJIZEN = "knjizen"           # Proknjižen u ERP
+    PLACEN = "placen"             # Plaćen
+    OSPOREN = "osporen"           # Osporen — zahtijeva provjeru
+
+
+class InvoiceMatchResult:
+    """Rezultat sparivanja ulaznog računa s narudžbenicom."""
+    def __init__(self):
+        self.matched: bool = False
+        self.order_ref: str = ""
+        self.price_match: bool = False
+        self.quantity_match: bool = False
+        self.price_diff: float = 0.0
+        self.notes: List[str] = []
+
+
+class LikvidaturaEngine:
+    """Likvidacija ulaznih računa — workflow od prijema do plaćanja."""
+
+    def __init__(self):
+        self._invoices = {}
+        self._stats = {"total": 0, "approved": 0, "disputed": 0}
+
+    def receive_invoice(self, invoice_data: dict) -> dict:
+        """Zaprimi ulazni račun i pokreni likvidaturu."""
+        inv_id = f"URA-{self._stats['total'] + 1:05d}"
+        self._stats["total"] += 1
+
+        # Automatska provjera
+        checks = self._auto_checks(invoice_data)
+        status = InvoiceStatus.U_OBRADI if all(
+            c["passed"] for c in checks
+        ) else InvoiceStatus.OSPOREN
+
+        record = {
+            "id": inv_id,
+            "status": status.value,
+            "partner": invoice_data.get("partner", ""),
+            "oib": invoice_data.get("oib", ""),
+            "broj_racuna": invoice_data.get("broj_racuna", ""),
+            "datum_racuna": invoice_data.get("datum", ""),
+            "datum_prijema": date.today().isoformat(),
+            "iznos": _r2(_d(invoice_data.get("ukupno", 0))),
+            "pdv": _r2(_d(invoice_data.get("pdv", 0))),
+            "valuta": invoice_data.get("valuta", date.today().isoformat()),
+            "checks": checks,
+            "requires_approval": True,
+        }
+        self._invoices[inv_id] = record
+        return record
+
+    def _auto_checks(self, data: dict) -> List[dict]:
+        """Automatske kontrole ulaznog računa."""
+        checks = []
+
+        # 1. OIB validan?
+        oib = data.get("oib", "")
+        oib_valid = len(oib) == 11 and oib.isdigit()
+        checks.append({"check": "OIB format", "passed": oib_valid,
+                       "msg": "OK" if oib_valid else f"Neispravan OIB: {oib}"})
+
+        # 2. Datum u prošlosti?
+        datum = data.get("datum", "")
+        try:
+            d = date.fromisoformat(datum)
+            date_ok = d <= date.today()
+            checks.append({"check": "Datum", "passed": date_ok,
+                          "msg": "OK" if date_ok else "Datum u budućnosti"})
+        except (ValueError, TypeError):
+            checks.append({"check": "Datum", "passed": False, "msg": "Neispravan datum"})
+
+        # 3. PDV = osnovica × stopa?
+        ukupno = _d(data.get("ukupno", 0))
+        pdv = _d(data.get("pdv", 0))
+        osnovica = _d(data.get("osnovica", 0))
+        if osnovica > 0 and pdv > 0:
+            expected_total = _r2(osnovica + pdv)
+            diff = abs(float(ukupno) - expected_total)
+            math_ok = diff < 0.03
+            checks.append({"check": "Matematika", "passed": math_ok,
+                          "msg": "OK" if math_ok else f"Ukupno {ukupno} ≠ {osnovica}+{pdv}={expected_total}"})
+
+        # 4. Duplikat?
+        dup_key = f"{data.get('oib','')}_{data.get('broj_racuna','')}"
+        is_dup = any(
+            f"{inv['oib']}_{inv['broj_racuna']}" == dup_key
+            for inv in self._invoices.values()
+        )
+        checks.append({"check": "Duplikat", "passed": not is_dup,
+                       "msg": "Nema duplikata" if not is_dup else "⚠️ Moguć duplikat!"})
+
+        return checks
+
+    def approve(self, inv_id: str, approver: str) -> dict:
+        """Odobri račun za knjiženje."""
+        if inv_id not in self._invoices:
+            return {"error": f"Račun {inv_id} ne postoji"}
+        inv = self._invoices[inv_id]
+        inv["status"] = InvoiceStatus.ODOBREN.value
+        inv["approved_by"] = approver
+        inv["approved_at"] = date.today().isoformat()
+        self._stats["approved"] += 1
+        return inv
+
+    def get_aging_report(self) -> List[dict]:
+        """Starosna struktura neplaćenih računa."""
+        today = date.today()
+        aging = {"0-30": [], "31-60": [], "61-90": [], "90+": []}
+        for inv in self._invoices.values():
+            if inv["status"] in (InvoiceStatus.PLACEN.value,):
+                continue
+            try:
+                valuta = date.fromisoformat(inv["valuta"])
+                days = (today - valuta).days
+                if days <= 30:
+                    aging["0-30"].append(inv)
+                elif days <= 60:
+                    aging["31-60"].append(inv)
+                elif days <= 90:
+                    aging["61-90"].append(inv)
+                else:
+                    aging["90+"].append(inv)
+            except (ValueError, TypeError):
+                pass
+
+        return {
+            bucket: {
+                "count": len(items),
+                "total": _r2(sum(_d(i["iznos"]) for i in items)),
+            }
+            for bucket, items in aging.items()
+        }
+
+    def get_stats(self):
+        return {**self._stats, "pending": self._stats["total"] - self._stats["approved"] - self._stats["disputed"]}

@@ -11,11 +11,27 @@ Stope poreza na dohodak:
 Osobni odbitak: 560 EUR/mj × 12 = 6.720 EUR godišnje (osnovni)
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 logger = logging.getLogger("nyx_light.modules.porez_dohodak")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 DOH_STOPA_NIZA = 20.0     # %
 DOH_STOPA_VISA = 30.0     # %
@@ -240,3 +256,136 @@ class PorezDohodakEngine:
 
     def get_stats(self):
         return {"doh_generated": self._count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Godišnji obračun poreza, porezne olakšice, rezident/nerezident
+# ════════════════════════════════════════════════════════
+
+from datetime import date
+
+# Stope poreza na dohodak 2026.
+POREZ_STOPA_1 = 0.20          # 20% do 50.400 EUR godišnje
+POREZ_STOPA_2 = 0.30          # 30% iznad 50.400 EUR godišnje
+POREZ_PRAG_GODISNJI = 50400.0  # EUR godišnje (4.200 EUR mjesečno)
+
+# Osobni odbitak — čl. 14 Zakona o porezu na dohodak
+OSNOVNI_OSOBNI_ODBITAK = 560.0  # EUR mjesečno (6.720 EUR godišnje)
+FAKTORI_UZDRZAVANI = {
+    "prvi_clan": 0.7,       # 560 × 0.7 = 392 EUR
+    "drugi_clan": 1.0,       # 560 × 1.0 = 560 EUR
+    "treci_clan": 1.4,       # itd.
+    "cetvrti_clan": 1.9,
+}
+FAKTORI_DJECA = [0.7, 1.0, 1.4, 1.9, 2.5, 3.2, 4.0, 4.9, 5.9]
+FAKTOR_INVALIDITET_RADNIK = 0.4     # Osobna invalidnost
+FAKTOR_INVALIDITET_100 = 1.5        # 100% invalidnost
+
+
+class GodisnjiObracunPD:
+    """Godišnji obračun poreza na dohodak (DOH obrazac)."""
+
+    def __init__(self):
+        self._calc_count = 0
+
+    def calculate(
+        self,
+        ukupni_primici: float,
+        ukupni_doprinosi_iz: float,
+        osobni_odbitak_godisnji: float = 0.0,
+        placeni_porez_prirez: float = 0.0,
+        prirez_pct: float = 0.0,
+        # Olakšice
+        djeca_count: int = 0,
+        uzdrzavani_clanovi: int = 0,
+        invalidnost_radnik: bool = False,
+        invalidnost_100: bool = False,
+        # Posebni dohoci
+        dohodak_od_kapitala: float = 0.0,
+        dohodak_od_imovine: float = 0.0,
+        dohodak_od_osiguranja: float = 0.0,
+    ) -> dict:
+        """Izračunaj godišnji porez na dohodak."""
+
+        # 1. Ukupni dohodak
+        dohodak = _r2(_d(ukupni_primici) - _d(ukupni_doprinosi_iz))
+
+        # 2. Osobni odbitak (ako nije ručno zadan)
+        if osobni_odbitak_godisnji <= 0:
+            osobni_odbitak_godisnji = self._izracunaj_osobni_odbitak(
+                djeca_count, uzdrzavani_clanovi,
+                invalidnost_radnik, invalidnost_100
+            )
+
+        # 3. Porezna osnovica
+        porezna_osnovica = max(0, _r2(_d(dohodak) - _d(osobni_odbitak_godisnji)))
+
+        # Dodaj posebne dohotke
+        posebni = _r2(_d(dohodak_od_kapitala) + _d(dohodak_od_imovine) + _d(dohodak_od_osiguranja))
+        porezna_osnovica_ukupna = _r2(_d(porezna_osnovica) + _d(posebni))
+
+        # 4. Porez — progresivne stope
+        if porezna_osnovica_ukupna <= POREZ_PRAG_GODISNJI:
+            porez = _r2(_d(porezna_osnovica_ukupna) * _d(POREZ_STOPA_1))
+        else:
+            porez_nizi = _r2(_d(POREZ_PRAG_GODISNJI) * _d(POREZ_STOPA_1))
+            porez_visi = _r2((_d(porezna_osnovica_ukupna) - _d(POREZ_PRAG_GODISNJI)) * _d(POREZ_STOPA_2))
+            porez = _r2(_d(porez_nizi) + _d(porez_visi))
+
+        # 5. Prirez
+        prirez = _r2(_d(porez) * _d(prirez_pct) / _d(100)) if prirez_pct > 0 else 0.0
+        ukupno_porez_prirez = _r2(_d(porez) + _d(prirez))
+
+        # 6. Razlika za uplatu/povrat
+        razlika = _r2(_d(ukupno_porez_prirez) - _d(placeni_porez_prirez))
+
+        self._calc_count += 1
+
+        return {
+            "ukupni_primici": _r2(_d(ukupni_primici)),
+            "ukupni_doprinosi": _r2(_d(ukupni_doprinosi_iz)),
+            "dohodak": dohodak,
+            "osobni_odbitak_godisnji": _r2(_d(osobni_odbitak_godisnji)),
+            "porezna_osnovica": _r2(_d(porezna_osnovica)),
+            "posebni_dohoci": posebni,
+            "porezna_osnovica_ukupna": _r2(_d(porezna_osnovica_ukupna)),
+            "porez_20pct": _r2(_d(min(_d(porezna_osnovica_ukupna), _d(POREZ_PRAG_GODISNJI))) * _d(POREZ_STOPA_1)),
+            "porez_30pct": _r2(max(0, float(_d(porezna_osnovica_ukupna) - _d(POREZ_PRAG_GODISNJI))) * POREZ_STOPA_2),
+            "porez_ukupno": porez,
+            "prirez_pct": prirez_pct,
+            "prirez_iznos": prirez,
+            "ukupno_porez_prirez": ukupno_porez_prirez,
+            "placeno_tijekom_godine": _r2(_d(placeni_porez_prirez)),
+            "za_uplatu": _r2(max(0, razlika)),
+            "za_povrat": _r2(abs(min(0, razlika))),
+            "stopa_primjenjena": "20%" if porezna_osnovica_ukupna <= POREZ_PRAG_GODISNJI else "20%+30%",
+        }
+
+    def _izracunaj_osobni_odbitak(
+        self, djeca: int, uzdrzavani: int,
+        invalid: bool, invalid_100: bool
+    ) -> float:
+        """Godišnji osobni odbitak."""
+        mjesecni = OSNOVNI_OSOBNI_ODBITAK  # Osnovni 560 EUR
+
+        # Uzdržavani članovi
+        for i in range(uzdrzavani):
+            keys = list(FAKTORI_UZDRZAVANI.keys())
+            idx = min(i, len(keys) - 1)
+            mjesecni += OSNOVNI_OSOBNI_ODBITAK * FAKTORI_UZDRZAVANI[keys[idx]]
+
+        # Djeca
+        for i in range(djeca):
+            idx = min(i, len(FAKTORI_DJECA) - 1)
+            mjesecni += OSNOVNI_OSOBNI_ODBITAK * FAKTORI_DJECA[idx]
+
+        # Invalidnost
+        if invalid_100:
+            mjesecni += OSNOVNI_OSOBNI_ODBITAK * FAKTOR_INVALIDITET_100
+        elif invalid:
+            mjesecni += OSNOVNI_OSOBNI_ODBITAK * FAKTOR_INVALIDITET_RADNIK
+
+        return _r2(_d(mjesecni) * _d(12))
+
+    def get_stats(self):
+        return {"godisnji_obracun_count": self._calc_count}

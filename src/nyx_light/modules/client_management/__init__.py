@@ -230,3 +230,233 @@ class ClientOnboarding:
         return {"total_clients": len(self._clients),
                 "active": sum(1 for c in self._clients.values()
                               if c.status == "aktivan")}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Profitabilnost klijenta, rizik scoring, portfolio analiza
+# ════════════════════════════════════════════════════════
+
+from decimal import Decimal, ROUND_HALF_UP
+from datetime import date
+
+def _d(val) -> Decimal:
+    if isinstance(val, Decimal): return val
+    return Decimal(str(val) if val else '0')
+
+def _r2(val) -> float:
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+
+# Kategorije klijenata prema veličini (ZOR)
+VELICINA_PODUZETNIKA = {
+    "mikro": {"aktiva_max": 350000, "prihod_max": 700000, "zaposleni_max": 10},
+    "mali": {"aktiva_max": 2000000, "prihod_max": 8000000, "zaposleni_max": 50},
+    "srednji": {"aktiva_max": 17500000, "prihod_max": 35000000, "zaposleni_max": 250},
+    "veliki": {"aktiva_max": float('inf'), "prihod_max": float('inf'), "zaposleni_max": float('inf')},
+}
+
+
+class ClientProfitability:
+    """Analiza profitabilnosti klijenata ureda."""
+
+    @staticmethod
+    def calculate(
+        klijent_id: str,
+        mjesecna_naknada: float,
+        procijenjeni_sati_mj: float,
+        satnica_zaposlenik: float = 20.0,  # EUR/h prosječna cijena rada
+        dodatni_troskovi_mj: float = 0,
+    ) -> dict:
+        """Izračun profitabilnosti po klijentu."""
+        prihod = _d(mjesecna_naknada)
+        trosak_rada = _r2(_d(procijenjeni_sati_mj) * _d(satnica_zaposlenik))
+        ukupni_trosak = _r2(_d(trosak_rada) + _d(dodatni_troskovi_mj))
+        dobit = _r2(prihod - _d(ukupni_trosak))
+        marza = _r2(_d(dobit) / prihod * 100) if prihod > 0 else 0
+
+        return {
+            "klijent_id": klijent_id,
+            "mjesecna_naknada": _r2(prihod),
+            "trosak_rada": trosak_rada,
+            "dodatni_troskovi": _r2(_d(dodatni_troskovi_mj)),
+            "ukupni_trosak": ukupni_trosak,
+            "dobit_mjesecna": dobit,
+            "marza_pct": marza,
+            "godisnja_dobit": _r2(_d(dobit) * 12),
+            "efektivna_satnica": _r2(prihod / _d(procijenjeni_sati_mj or 1)),
+            "ocjena": (
+                "✅ profitabilan" if marza > 20
+                else "⚠️ granično" if marza > 5
+                else "❌ neprofitabilan"
+            ),
+        }
+
+    @staticmethod
+    def classify_client(
+        aktiva: float, prihod: float, zaposleni: int
+    ) -> dict:
+        """Klasifikacija klijenta prema ZOR-u (mikro/mali/srednji/veliki)."""
+        for cat, limits in VELICINA_PODUZETNIKA.items():
+            criteria_met = 0
+            if aktiva <= limits["aktiva_max"]:
+                criteria_met += 1
+            if prihod <= limits["prihod_max"]:
+                criteria_met += 1
+            if zaposleni <= limits["zaposleni_max"]:
+                criteria_met += 1
+            # Dva od tri kriterija (ZOR čl. 5)
+            if criteria_met >= 2:
+                return {
+                    "kategorija": cat,
+                    "aktiva": _r2(_d(aktiva)),
+                    "prihod": _r2(_d(prihod)),
+                    "zaposleni": zaposleni,
+                    "obveze": {
+                        "mikro": "Jednostavno knjigovodstvo moguće, bez revizije",
+                        "mali": "Dvojno knjigovodstvo, bez revizije (osim iznimki)",
+                        "srednji": "Dvojno knjigovodstvo, revizija obvezna",
+                        "veliki": "Dvojno knjigovodstvo, revizija, konsolidacija",
+                    }.get(cat, ""),
+                    "gfi_rok": "30. travnja" if cat in ("mikro", "mali") else "30. lipnja",
+                    "zakonski_temelj": "Zakon o računovodstvu, čl. 5",
+                }
+        return {"kategorija": "veliki"}
+
+    @staticmethod
+    def portfolio_summary(klijenti: list) -> dict:
+        """Sumarni pregled portfolia klijenata."""
+        ukupno_prihod = _d(0)
+        ukupno_dobit = _d(0)
+        by_cat = {}
+        for k in klijenti:
+            cat = k.get("kategorija", "nepoznato")
+            by_cat[cat] = by_cat.get(cat, 0) + 1
+            ukupno_prihod += _d(k.get("mjesecna_naknada", 0))
+            ukupno_dobit += _d(k.get("dobit_mjesecna", 0))
+
+        return {
+            "broj_klijenata": len(klijenti),
+            "po_kategorijama": by_cat,
+            "ukupni_mjesecni_prihod": _r2(ukupno_prihod),
+            "ukupna_mjesecna_dobit": _r2(ukupno_dobit),
+            "prosjecna_marza": _r2(
+                ukupno_dobit / ukupno_prihod * 100
+            ) if ukupno_prihod > 0 else 0,
+        }
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: PDV obveznik provjera, OIB validacija, RGFI check
+# ════════════════════════════════════════════════════════
+
+from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
+
+
+def _d(val):
+    if isinstance(val, Decimal): return val
+    return Decimal(str(val) if val else '0')
+
+def _r2(val):
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+
+# Pragovi za PDV obveznika i veličinu poduzetnika (ZOR čl. 5)
+PRAG_PDV_OBVEZNIK = 40000.0       # EUR godišnje (od 2025.)
+PRAG_MIKRO_PRIHODI = 2600000.0    # EUR
+PRAG_MIKRO_IMOVINA = 1300000.0    # EUR
+PRAG_MIKRO_ZAPOSLENICI = 10
+PRAG_MALI_PRIHODI = 7500000.0
+PRAG_MALI_IMOVINA = 3750000.0
+PRAG_MALI_ZAPOSLENICI = 50
+PRAG_SREDNJI_PRIHODI = 30000000.0
+PRAG_SREDNJI_IMOVINA = 15000000.0
+PRAG_SREDNJI_ZAPOSLENICI = 250
+
+
+def validate_oib(oib: str) -> bool:
+    """Validacija OIB-a po ISO 7064, MOD 11,10."""
+    if not oib or len(oib) != 11 or not oib.isdigit():
+        return False
+    a = 10
+    for digit in oib[:10]:
+        a = (a + int(digit)) % 10
+        if a == 0:
+            a = 10
+        a = (a * 2) % 11
+    return (11 - a) % 10 == int(oib[10])
+
+
+class ClientClassifier:
+    """Klasifikacija klijenata prema zakonskim kriterijima."""
+
+    @staticmethod
+    def classify_size(
+        prihodi: float,
+        imovina: float,
+        zaposlenici: int,
+    ) -> dict:
+        """Klasificiraj poduzetnika po veličini (ZOR čl. 5)."""
+        if (prihodi <= PRAG_MIKRO_PRIHODI and
+            imovina <= PRAG_MIKRO_IMOVINA and
+            zaposlenici <= PRAG_MIKRO_ZAPOSLENICI):
+            cat = "mikro"
+            gfi = "GFI-POD (skraćeni)"
+            revizija = False
+        elif (prihodi <= PRAG_MALI_PRIHODI and
+              imovina <= PRAG_MALI_IMOVINA and
+              zaposlenici <= PRAG_MALI_ZAPOSLENICI):
+            cat = "mali"
+            gfi = "GFI-POD (skraćeni)"
+            revizija = False
+        elif (prihodi <= PRAG_SREDNJI_PRIHODI and
+              imovina <= PRAG_SREDNJI_IMOVINA and
+              zaposlenici <= PRAG_SREDNJI_ZAPOSLENICI):
+            cat = "srednji"
+            gfi = "GFI-POD (potpuni)"
+            revizija = True
+        else:
+            cat = "veliki"
+            gfi = "GFI-POD (potpuni) + konsolidacija"
+            revizija = True
+
+        return {
+            "kategorija": cat,
+            "gfi_obrazac": gfi,
+            "revizija_obvezna": revizija,
+            "standardi": "HSFI" if cat in ("mikro", "mali") else "MSFI",
+            "pdv_obveznik": prihodi > PRAG_PDV_OBVEZNIK,
+            "intrastat_moguc": prihodi > 300000,
+            "zakonski_temelj": "Zakon o računovodstvu čl. 5",
+        }
+
+    @staticmethod
+    def validate_client(data: dict) -> list:
+        """Validacija klijentskih podataka."""
+        errors = []
+        oib = data.get("oib", "")
+        if oib and not validate_oib(oib):
+            errors.append({"field": "oib", "msg": f"Neispravan OIB: {oib}", "severity": "error"})
+        if not data.get("naziv"):
+            errors.append({"field": "naziv", "msg": "Naziv klijenta je obvezan", "severity": "error"})
+        if not data.get("adresa"):
+            errors.append({"field": "adresa", "msg": "Adresa je obvezna za GFI", "severity": "warning"})
+        iban = data.get("iban", "")
+        if iban and (not iban.startswith("HR") or len(iban) != 21):
+            errors.append({"field": "iban", "msg": f"IBAN format: HR + 19 znamenki, dobiveno: {iban}", "severity": "warning"})
+        return errors
+
+    @staticmethod
+    def pdv_status_check(godisnji_prihod: float) -> dict:
+        """Provjeri PDV obvezništvo."""
+        is_obveznik = godisnji_prihod > PRAG_PDV_OBVEZNIK
+        return {
+            "pdv_obveznik": is_obveznik,
+            "godisnji_prihod": _r2(_d(godisnji_prihod)),
+            "prag": PRAG_PDV_OBVEZNIK,
+            "pdv_prijava": "mjesečna" if godisnji_prihod > 800000 else "tromjesečna" if is_obveznik else "nije obveznik",
+            "napomena": (
+                "Poduzetnik s prihodom > 800.000 EUR predaje PDV mjesečno, "
+                "ostali PDV obveznici tromjesečno."
+            ) if is_obveznik else "Ispod praga — nije u sustavu PDV-a.",
+        }

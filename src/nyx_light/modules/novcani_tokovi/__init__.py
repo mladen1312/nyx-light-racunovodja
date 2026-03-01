@@ -15,11 +15,27 @@ C. Novčani tokovi od FINANCIJSKIH AKTIVNOSTI
 Neto povećanje/smanjenje novca = A + B + C
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 logger = logging.getLogger("nyx_light.modules.novcani_tokovi")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 
 @dataclass
@@ -209,3 +225,133 @@ class NovcanitTokoviEngine:
 
     def get_stats(self):
         return {"nti_generated": self._count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Direktna/indirektna metoda, likvidnost, burn rate
+# ════════════════════════════════════════════════════════
+
+from datetime import date, timedelta
+
+
+class CashFlowEngine:
+    """Izvještaj o novčanim tokovima prema HSFI/MRS 7."""
+
+    def __init__(self):
+        self._count = 0
+
+    def direktna_metoda(
+        self,
+        primici_od_kupaca: float = 0,
+        placanja_dobavljacima: float = 0,
+        place_i_naknade: float = 0,
+        porezi_placeni: float = 0,
+        ostali_poslovni_primici: float = 0,
+        ostali_poslovni_izdaci: float = 0,
+        # Investicijske
+        kupnja_dugotrajne: float = 0,
+        prodaja_dugotrajne: float = 0,
+        # Financijske
+        primljeni_krediti: float = 0,
+        otplate_kredita: float = 0,
+        isplacene_dividende: float = 0,
+        # Stanje
+        stanje_pocetno: float = 0,
+    ) -> dict:
+        """Izvještaj direktnom metodom."""
+
+        poslovne = _r2(
+            _d(primici_od_kupaca) + _d(ostali_poslovni_primici)
+            - _d(placanja_dobavljacima) - _d(place_i_naknade)
+            - _d(porezi_placeni) - _d(ostali_poslovni_izdaci)
+        )
+
+        investicijske = _r2(
+            _d(prodaja_dugotrajne) - _d(kupnja_dugotrajne)
+        )
+
+        financijske = _r2(
+            _d(primljeni_krediti) - _d(otplate_kredita) - _d(isplacene_dividende)
+        )
+
+        neto_promjena = _r2(_d(poslovne) + _d(investicijske) + _d(financijske))
+        stanje_zavrsno = _r2(_d(stanje_pocetno) + _d(neto_promjena))
+
+        self._count += 1
+        return {
+            "metoda": "direktna",
+            "poslovne_aktivnosti": {
+                "primici_od_kupaca": _r2(_d(primici_od_kupaca)),
+                "placanja_dobavljacima": _r2(_d(placanja_dobavljacima)),
+                "place_i_naknade": _r2(_d(place_i_naknade)),
+                "porezi": _r2(_d(porezi_placeni)),
+                "neto_poslovne": poslovne,
+            },
+            "investicijske_aktivnosti": {
+                "kupnja_dugotrajne": _r2(_d(kupnja_dugotrajne)),
+                "prodaja_dugotrajne": _r2(_d(prodaja_dugotrajne)),
+                "neto_investicijske": investicijske,
+            },
+            "financijske_aktivnosti": {
+                "primljeni_krediti": _r2(_d(primljeni_krediti)),
+                "otplate_kredita": _r2(_d(otplate_kredita)),
+                "dividende": _r2(_d(isplacene_dividende)),
+                "neto_financijske": financijske,
+            },
+            "neto_promjena": neto_promjena,
+            "stanje_pocetno": _r2(_d(stanje_pocetno)),
+            "stanje_zavrsno": stanje_zavrsno,
+        }
+
+    def burn_rate(
+        self,
+        stanje: float,
+        mjesecni_izdaci: float,
+        mjesecni_primici: float = 0,
+    ) -> dict:
+        """Izračunaj burn rate i runway."""
+        neto_burn = _r2(_d(mjesecni_izdaci) - _d(mjesecni_primici))
+        if neto_burn > 0 and stanje > 0:
+            runway_mjeseci = int(float(_d(stanje) / _d(neto_burn)))
+        else:
+            runway_mjeseci = -1  # Beskonačan (primici > izdaci)
+
+        return {
+            "stanje": _r2(_d(stanje)),
+            "mjesecni_izdaci": _r2(_d(mjesecni_izdaci)),
+            "mjesecni_primici": _r2(_d(mjesecni_primici)),
+            "neto_burn": neto_burn,
+            "runway_mjeseci": runway_mjeseci,
+            "runway_datum": (
+                (date.today() + timedelta(days=30 * runway_mjeseci)).isoformat()
+                if runway_mjeseci > 0 else "neograničen"
+            ),
+            "status": (
+                "kritično" if 0 < runway_mjeseci <= 3
+                else "upozorenje" if 0 < runway_mjeseci <= 6
+                else "stabilno"
+            ),
+        }
+
+    def likvidnost_koeficijenti(
+        self,
+        kratkotrajna_imovina: float,
+        kratkorocne_obveze: float,
+        zalihe: float = 0,
+        novac: float = 0,
+    ) -> dict:
+        """Koeficijenti likvidnosti."""
+        ko = kratkorocne_obveze or 1  # Avoid division by zero
+        return {
+            "koef_tekuce_likvidnosti": _r2(_d(kratkotrajna_imovina) / _d(ko)),
+            "koef_ubrzane_likvidnosti": _r2((_d(kratkotrajna_imovina) - _d(zalihe)) / _d(ko)),
+            "koef_trenutne_likvidnosti": _r2(_d(novac) / _d(ko)),
+            "preporuke": {
+                "tekuca": "≥ 2.0 (idealno)",
+                "ubrzana": "≥ 1.0",
+                "trenutna": "≥ 0.1",
+            },
+        }
+
+    def get_stats(self):
+        return {"cashflow_count": self._count}

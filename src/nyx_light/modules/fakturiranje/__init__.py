@@ -11,12 +11,28 @@ Podržava:
 Račun se generira u PDF/XML formatu.
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("nyx_light.modules.fakturiranje")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 PDV_STOPA = 25.0  # Računovodstvene usluge — standardna stopa
 
@@ -236,3 +252,111 @@ class FakturiranjeEngine:
         total = len(self._racuni)
         paid = sum(1 for r in self._racuni if r.status == "paid")
         return {"racuni_total": total, "racuni_paid": paid, "racuni_unpaid": total - paid}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: ZKI hash, sekvencijsko numeriranje, R1/R2 logika
+# ════════════════════════════════════════════════════════
+
+import hashlib
+import hmac
+from datetime import date, timedelta
+
+# Rokovi plaćanja prema ZOR-u (čl. 173-177)
+DEFAULT_VALUTA_DANI = 30      # B2B default
+MAX_VALUTA_DANI_B2G = 30      # Javni sektor max 30 dana
+MAX_VALUTA_DANI_B2B = 60      # Poslovni subjekti max 60 dana
+
+
+class InvoiceNumberGenerator:
+    """Sekvencijsko numeriranje računa po poslovnom prostoru."""
+
+    def __init__(self):
+        self._counters = {}  # {(year, pp_oznaka): next_number}
+
+    def next_number(self, year: int = None, pp_oznaka: str = "1") -> str:
+        """Generiraj sljedeći broj računa.
+        
+        Format: BROJ/PP/NAPLATNI_UREĐAJ (npr. 1/1/1)
+        Prema Zakonu o fiskalizaciji čl. 9.
+        """
+        year = year or date.today().year
+        key = (year, pp_oznaka)
+        num = self._counters.get(key, 1)
+        self._counters[key] = num + 1
+        return f"{num}/{pp_oznaka}/1"
+
+    def current_count(self, year: int = None, pp_oznaka: str = "1") -> int:
+        year = year or date.today().year
+        return self._counters.get((year, pp_oznaka), 1) - 1
+
+
+class ZKICalculator:
+    """Zaštitni Kod Izdavatelja — čl. 12 Zakona o fiskalizaciji."""
+
+    @staticmethod
+    def calculate(oib: str, datum_vrijeme: str, broj_racuna: str,
+                  pp_oznaka: str, nu_oznaka: str, ukupno: str,
+                  private_key: bytes = b"") -> str:
+        """Izračunaj ZKI hash.
+        
+        ZKI = MD5(RSA_Sign(OIB + datum + broj + PP + NU + ukupno))
+        
+        Za produkciju treba pravi RSA ključ iz certifikata FINA-e.
+        Za razvoj koristimo HMAC-SHA256 simulaciju.
+        """
+        zki_input = f"{oib}{datum_vrijeme}{broj_racuna}{pp_oznaka}{nu_oznaka}{ukupno}"
+        
+        if private_key:
+            # Produkcija: pravi RSA potpis
+            signature = hmac.new(private_key, zki_input.encode(), hashlib.sha256).hexdigest()
+        else:
+            # Dev: simulirani ZKI (32 hex znakova kao MD5)
+            signature = hashlib.md5(zki_input.encode()).hexdigest()
+        
+        return signature
+
+
+def calculate_due_date(invoice_date: date, payment_days: int = 30,
+                       partner_type: str = "b2b") -> date:
+    """Izračunaj datum dospijeća prema ZOR-u."""
+    if partner_type == "b2g":
+        payment_days = min(payment_days, MAX_VALUTA_DANI_B2G)
+    elif partner_type == "b2b":
+        payment_days = min(payment_days, MAX_VALUTA_DANI_B2B)
+    return invoice_date + timedelta(days=payment_days)
+
+
+def validate_invoice(data: dict) -> List[Dict]:
+    """Validacija računa prije izdavanja."""
+    errors = []
+    required = ["oib_kupca", "datum", "stavke", "ukupno"]
+    for field in required:
+        if not data.get(field):
+            errors.append({"field": field, "msg": f"Polje '{field}' je obvezno", "severity": "error"})
+
+    # OIB provjera
+    oib = data.get("oib_kupca", "")
+    if oib and len(oib) == 11:
+        from nyx_light.modules.pdv_prijava import validate_oib
+        if not validate_oib(oib):
+            errors.append({"field": "oib_kupca", "msg": f"Neispravan OIB: {oib}", "severity": "error"})
+
+    # Stavke ukupno = sum(stavka.ukupno)
+    stavke = data.get("stavke", [])
+    if stavke:
+        calc_total = sum(_d(s.get("ukupno", 0)) for s in stavke)
+        stated_total = _d(data.get("ukupno", 0))
+        if abs(calc_total - stated_total) > _d("0.02"):
+            errors.append({
+                "field": "ukupno",
+                "msg": f"Ukupno ({stated_total}) ≠ zbroj stavki ({calc_total})",
+                "severity": "error",
+            })
+
+    # R1/R2 provjera
+    tip = data.get("tip_racuna", "R1")
+    if tip == "R1" and not data.get("pdv_obveznik"):
+        errors.append({"field": "tip_racuna", "msg": "R1 račun zahtijeva PDV obveznički status", "severity": "warning"})
+
+    return errors

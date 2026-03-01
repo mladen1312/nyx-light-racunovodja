@@ -20,11 +20,27 @@ Za autorske honorare:
 - Neto = bruto - MIO - porez - prirez
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 logger = logging.getLogger("nyx_light.modules.drugi_dohodak")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 # Doprinosi
 MIO_1_PCT = 15.0  # %
@@ -211,3 +227,159 @@ class DrugiDohodakEngine:
 
     def get_stats(self):
         return {"drugi_dohodak_calculated": self._count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Ugovor o djelu, autorski, članovi uprave, neoporezivi iznosi
+# ════════════════════════════════════════════════════════
+
+from datetime import date
+
+# Stope doprinosa za drugi dohodak 2026.
+# Primatelj plaća:
+MIO_I_STOPA = 0.15       # 15% MIO I stup
+MIO_II_STOPA = 0.05      # 5% MIO II stup
+# Isplatitelj plaća:
+ZDRAVSTVENO_STOPA = 0.165  # 16.5% zdravstveno
+
+# Porez na dohodak
+DD_POREZ_STOPA = 0.20   # 20% (paušalno, bez osobnog odbitka)
+
+# Autorski honorar — paušalni troškovi (čl. 46 Pravilnika)
+AUTORSKI_PAUSALNI_TROSKOVI = {
+    "likovna_djela": 0.55,          # 55% priznatih troškova
+    "knjizevna_proza": 0.40,        # 40%
+    "strucni_prijevod": 0.30,       # 30%
+    "fotografija": 0.40,            # 40%
+    "glazbena_djela": 0.50,         # 50%
+    "arhitektura": 0.25,            # 25%
+    "software": 0.30,               # 30%
+    "ostalo": 0.30,                 # 30% default
+}
+
+# Neoporezivi primitci za drugi dohodak 2026.
+NEOPOREZIVI_NAGRADE = {
+    "sportski_sudac": 40.0,          # EUR po natjecanju
+    "nagrada_ucenici": 232.27,       # EUR godišnje
+    "naknada_volonterima": 232.27,   # EUR godišnje
+    "nagrada_natjecanje": 331.81,    # EUR godišnje
+}
+
+
+class DrugiDohodakCalculator:
+    """Obračun drugog dohotka — ugovor o djelu, autorski, članovi uprave."""
+
+    def __init__(self):
+        self._count = 0
+
+    def obracun_ugovor_o_djelu(
+        self,
+        bruto_naknada: float,
+        prirez_pct: float = 0.0,
+    ) -> dict:
+        """Obračun za ugovor o djelu."""
+        bruto = _d(bruto_naknada)
+
+        mio_i = _r2(bruto * _d(MIO_I_STOPA))
+        mio_ii = _r2(bruto * _d(MIO_II_STOPA))
+        dohodak = _r2(bruto - _d(mio_i) - _d(mio_ii))
+
+        porez = _r2(_d(dohodak) * _d(DD_POREZ_STOPA))
+        prirez = _r2(_d(porez) * _d(prirez_pct) / _d(100))
+        neto = _r2(_d(dohodak) - _d(porez) - _d(prirez))
+
+        zdravstveno = _r2(bruto * _d(ZDRAVSTVENO_STOPA))
+        trosak_isplatitelja = _r2(bruto + _d(zdravstveno))
+
+        self._count += 1
+        return {
+            "tip": "ugovor_o_djelu",
+            "bruto": float(bruto),
+            "mio_i_15pct": mio_i,
+            "mio_ii_5pct": mio_ii,
+            "dohodak": dohodak,
+            "porez_20pct": porez,
+            "prirez": prirez,
+            "neto_za_isplatu": neto,
+            "zdravstveno_16_5pct": zdravstveno,
+            "ukupni_trosak_isplatitelja": trosak_isplatitelja,
+            "joppd_oznaka": "4002",  # Oznaka za JOPPD
+        }
+
+    def obracun_autorski(
+        self,
+        bruto_naknada: float,
+        vrsta_djela: str = "ostalo",
+        prirez_pct: float = 0.0,
+    ) -> dict:
+        """Obračun autorskog honorara s paušalnim troškovima."""
+        bruto = _d(bruto_naknada)
+
+        # Paušalni troškovi
+        pct_troskovi = AUTORSKI_PAUSALNI_TROSKOVI.get(vrsta_djela, 0.30)
+        pausalni_troskovi = _r2(bruto * _d(pct_troskovi))
+
+        mio_i = _r2(bruto * _d(MIO_I_STOPA))
+        mio_ii = _r2(bruto * _d(MIO_II_STOPA))
+        dohodak = _r2(bruto - _d(mio_i) - _d(mio_ii) - _d(pausalni_troskovi))
+
+        porez = _r2(_d(dohodak) * _d(DD_POREZ_STOPA))
+        prirez = _r2(_d(porez) * _d(prirez_pct) / _d(100))
+        neto = _r2(_d(dohodak) - _d(porez) - _d(prirez))
+
+        # Dodaj natrag paušalne troškove (dio koji primatelj zadrži)
+        za_isplatu = _r2(_d(neto) + _d(pausalni_troskovi))
+
+        zdravstveno = _r2(bruto * _d(ZDRAVSTVENO_STOPA))
+        trosak_isplatitelja = _r2(bruto + _d(zdravstveno))
+
+        self._count += 1
+        return {
+            "tip": "autorski_honorar",
+            "vrsta_djela": vrsta_djela,
+            "bruto": float(bruto),
+            "pausalni_troskovi_pct": pct_troskovi * 100,
+            "pausalni_troskovi": pausalni_troskovi,
+            "mio_i_15pct": mio_i,
+            "mio_ii_5pct": mio_ii,
+            "dohodak": dohodak,
+            "porez_20pct": porez,
+            "prirez": prirez,
+            "neto": neto,
+            "za_isplatu": za_isplatu,
+            "zdravstveno_16_5pct": zdravstveno,
+            "ukupni_trosak_isplatitelja": trosak_isplatitelja,
+            "joppd_oznaka": "4042",  # Autorski JOPPD
+        }
+
+    def obracun_clan_uprave(
+        self,
+        bruto_naknada: float,
+        prirez_pct: float = 0.0,
+    ) -> dict:
+        """Obračun naknade za članove uprave/nadzornog odbora."""
+        bruto = _d(bruto_naknada)
+        # Članovi uprave: nema MIO doprinosa, samo porez + zdravstveno
+        porez = _r2(bruto * _d(DD_POREZ_STOPA))
+        prirez = _r2(_d(porez) * _d(prirez_pct) / _d(100))
+        neto = _r2(bruto - _d(porez) - _d(prirez))
+
+        zdravstveno = _r2(bruto * _d(ZDRAVSTVENO_STOPA))
+
+        self._count += 1
+        return {
+            "tip": "clan_uprave",
+            "bruto": float(bruto),
+            "mio_i": 0.0,
+            "mio_ii": 0.0,
+            "porez_20pct": porez,
+            "prirez": prirez,
+            "neto_za_isplatu": neto,
+            "zdravstveno_16_5pct": zdravstveno,
+            "ukupni_trosak": _r2(bruto + _d(zdravstveno)),
+            "joppd_oznaka": "4080",
+            "napomena": "Članovi uprave: bez doprinosa za MIO",
+        }
+
+    def get_stats(self):
+        return {"obracun_count": self._count}

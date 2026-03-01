@@ -11,12 +11,28 @@ Provjerava formalne elemente prema čl. 63. Zakona o PDV-u:
 Za EU transakcije: provjera reverse charge uvjeta.
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("nyx_light.modules.outgoing_invoice")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 # PDV stope RH
 PDV_STOPE_RH = {25.0, 13.0, 5.0, 0.0}
@@ -217,3 +233,100 @@ class OutgoingInvoiceValidator:
 
     def get_stats(self) -> Dict[str, Any]:
         return {"validations": self._validation_count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: R1/R2 logika, rabat, PDV obračun po stavci, cashflow prognoza
+# ════════════════════════════════════════════════════════
+
+from datetime import date, timedelta
+
+
+PDV_STOPE = {25.0: "25%", 13.0: "13%", 5.0: "5%", 0.0: "0%"}
+
+
+class IzlazniRacunCalculator:
+    """Kalkulacija izlaznog računa s PDV-om, rabatom i fiskalizacijom."""
+
+    def __init__(self):
+        self._count = 0
+
+    def calculate_stavke(self, stavke: list) -> dict:
+        """Izračunaj sve stavke računa s rabatom i PDV-om."""
+        result_stavke = []
+        ukupno_osnovica = _d(0)
+        ukupno_pdv = _d(0)
+        ukupno_rabat = _d(0)
+        pdv_rekapitulacija = {}
+
+        for i, s in enumerate(stavke, 1):
+            kolicina = _d(s.get("kolicina", 1))
+            cijena = _d(s.get("cijena", 0))
+            rabat_pct = _d(s.get("rabat_pct", 0))
+            pdv_stopa = _d(s.get("pdv_stopa", 25))
+
+            bruto_stavka = _r2(kolicina * cijena)
+            rabat_iznos = _r2(_d(bruto_stavka) * rabat_pct / _d(100))
+            osnovica = _r2(_d(bruto_stavka) - _d(rabat_iznos))
+            pdv = _r2(_d(osnovica) * pdv_stopa / _d(100))
+            ukupno_stavka = _r2(_d(osnovica) + _d(pdv))
+
+            ukupno_osnovica += _d(osnovica)
+            ukupno_pdv += _d(pdv)
+            ukupno_rabat += _d(rabat_iznos)
+
+            # PDV rekapitulacija po stopama
+            stopa_key = float(pdv_stopa)
+            if stopa_key not in pdv_rekapitulacija:
+                pdv_rekapitulacija[stopa_key] = {"osnovica": _d(0), "pdv": _d(0)}
+            pdv_rekapitulacija[stopa_key]["osnovica"] += _d(osnovica)
+            pdv_rekapitulacija[stopa_key]["pdv"] += _d(pdv)
+
+            result_stavke.append({
+                "rb": i,
+                "opis": s.get("opis", ""),
+                "kolicina": float(kolicina),
+                "jmj": s.get("jmj", "kom"),
+                "cijena": float(cijena),
+                "rabat_pct": float(rabat_pct),
+                "rabat_iznos": rabat_iznos,
+                "osnovica": osnovica,
+                "pdv_stopa": float(pdv_stopa),
+                "pdv": pdv,
+                "ukupno": ukupno_stavka,
+            })
+
+        rekapitulacija = {
+            f"{stopa}%": {"osnovica": _r2(v["osnovica"]), "pdv": _r2(v["pdv"])}
+            for stopa, v in sorted(pdv_rekapitulacija.items())
+        }
+
+        self._count += 1
+        return {
+            "stavke": result_stavke,
+            "ukupno_osnovica": _r2(ukupno_osnovica),
+            "ukupno_pdv": _r2(ukupno_pdv),
+            "ukupno_rabat": _r2(ukupno_rabat),
+            "sveukupno": _r2(ukupno_osnovica + ukupno_pdv),
+            "pdv_rekapitulacija": rekapitulacija,
+            "valuta": "EUR",
+        }
+
+    def cashflow_projection(self, invoices: list) -> dict:
+        """Prognoza priljeva po tjednima na temelju izdanih računa."""
+        today = date.today()
+        weeks = {f"week_{i}": _d(0) for i in range(1, 9)}
+
+        for inv in invoices:
+            try:
+                due = date.fromisoformat(inv.get("datum_dospijeca", ""))
+                diff = (due - today).days
+                week_num = max(1, min(8, (diff // 7) + 1))
+                weeks[f"week_{week_num}"] += _d(inv.get("iznos", 0))
+            except (ValueError, TypeError):
+                weeks["week_8"] += _d(inv.get("iznos", 0))
+
+        return {k: _r2(v) for k, v in weeks.items()}
+
+    def get_stats(self):
+        return {"invoices_calculated": self._count}

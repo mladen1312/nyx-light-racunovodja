@@ -9,11 +9,27 @@ Generiranje strukturiranih poslovnih planova:
   - Startup troškovi i ROI kalkulacija
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("nyx_light.modules.business_plan")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 
 @dataclass
@@ -206,3 +222,89 @@ class BusinessPlanGenerator:
 
     def get_stats(self):
         return {"plans_generated": self._plans_count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Financijska projekcija, ROI, startup cost estimator
+# ════════════════════════════════════════════════════════
+
+from datetime import date
+
+
+class FinancijskaProjekcija:
+    """Financijska projekcija za poslovni plan."""
+
+    @staticmethod
+    def projekcija_prihoda(
+        mjesecni_prihod_start: float,
+        rast_pct_mjesecno: float = 5.0,
+        mjeseci: int = 24,
+    ) -> dict:
+        """Projekcija prihoda s rastom."""
+        prihodi = []
+        ukupno = _d(0)
+        current = _d(mjesecni_prihod_start)
+        stopa_rasta = _d(1) + _d(rast_pct_mjesecno) / _d(100)
+
+        for m in range(1, mjeseci + 1):
+            prihodi.append({"mjesec": m, "prihod": _r2(current)})
+            ukupno += current
+            current = current * stopa_rasta
+
+        return {
+            "projekcija": prihodi,
+            "ukupno": _r2(ukupno),
+            "prosjecni_mjesecni": _r2(ukupno / _d(mjeseci)),
+            "zadnji_mjesec": _r2(current / stopa_rasta),
+            "rast_ukupni_pct": _r2((current / stopa_rasta - _d(mjesecni_prihod_start)) / _d(mjesecni_prihod_start or 1) * 100),
+        }
+
+    @staticmethod
+    def roi_analiza(
+        investicija: float,
+        godisnji_prihod: float,
+        godisnji_troskovi: float,
+        godine: int = 5,
+    ) -> dict:
+        """ROI i payback period izračun."""
+        godisnja_dobit = _r2(_d(godisnji_prihod) - _d(godisnji_troskovi))
+        if godisnja_dobit <= 0:
+            return {"error": "Godišnja dobit ≤ 0 — ROI nije primjenjiv"}
+
+        roi = _r2(_d(godisnja_dobit) / _d(investicija or 1) * 100)
+        payback = _r2(_d(investicija) / _d(godisnja_dobit))
+
+        # NPV (Net Present Value) s diskontnom stopom 8%
+        diskontna = _d("0.08")
+        npv = _d(0)
+        for g in range(1, godine + 1):
+            npv += _d(godisnja_dobit) / ((_d(1) + diskontna) ** g)
+        npv = _r2(npv - _d(investicija))
+
+        return {
+            "investicija": _r2(_d(investicija)),
+            "godisnja_dobit": godisnja_dobit,
+            "roi_pct": roi,
+            "payback_godine": float(payback),
+            "npv_8pct": npv,
+            "npv_pozitivan": npv > 0,
+            "preporuka": "✅ Investicija isplativa" if npv > 0 else "⚠️ NPV negativan — rizična investicija",
+        }
+
+    @staticmethod
+    def startup_costs_hr() -> dict:
+        """Procjena troškova osnivanja d.o.o. u RH (2026.)."""
+        return {
+            "temeljni_kapital_min": 1.0,     # EUR (od 2023.)
+            "temeljni_kapital_preporuka": 2500.0,
+            "notar_osnivanje": 250.0,         # EUR prosječno
+            "sudski_registar": 40.0,
+            "objava_u_nn": 15.0,
+            "pecati": 30.0,
+            "racun_u_banci": 0.0,
+            "knjigovodstvo_mjesecno": "150-500 EUR",
+            "fiskalizacija_setup": "50-200 EUR",
+            "ukupno_min": 336.0,
+            "ukupno_preporuka": 3000.0,
+            "napomena": "Od 2023. min. temeljni kapital d.o.o. je 1 EUR (Zakon o trgovačkim društvima).",
+        }

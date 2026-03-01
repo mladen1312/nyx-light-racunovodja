@@ -10,12 +10,28 @@ Analitika za menadžersko odlučivanje:
   - ABC analiza (Pareto klijenata)
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("nyx_light.modules.management_accounting")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 
 @dataclass
@@ -255,3 +271,85 @@ class ManagementAccounting:
             "budget_periods": len(self._budgets),
             "cost_centers": len(self._cost_centers),
         }
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: CVP analiza, break-even, budgeting, variance analysis
+# ════════════════════════════════════════════════════════
+
+
+class CVPAnalysis:
+    """Cost-Volume-Profit analiza."""
+
+    @staticmethod
+    def break_even(
+        fiksni_troskovi: float,
+        cijena_po_jed: float,
+        varijabilni_po_jed: float,
+    ) -> dict:
+        """Break-even point analiza."""
+        kontribucija = _r2(_d(cijena_po_jed) - _d(varijabilni_po_jed))
+        if kontribucija <= 0:
+            return {"error": "Kontribucijska marža ≤ 0 — nemoguć break-even"}
+
+        be_kolicina = int(float(_d(fiksni_troskovi) / _d(kontribucija))) + 1
+        be_prihod = _r2(_d(be_kolicina) * _d(cijena_po_jed))
+        kontribucija_pct = _r2(_d(kontribucija) / _d(cijena_po_jed) * 100)
+
+        return {
+            "fiksni_troskovi": _r2(_d(fiksni_troskovi)),
+            "cijena_po_jedinici": _r2(_d(cijena_po_jed)),
+            "varijabilni_po_jedinici": _r2(_d(varijabilni_po_jed)),
+            "kontribucija_po_jedinici": kontribucija,
+            "kontribucija_pct": kontribucija_pct,
+            "break_even_kolicina": be_kolicina,
+            "break_even_prihod": be_prihod,
+        }
+
+    @staticmethod
+    def what_if_profit(
+        fiksni_troskovi: float,
+        cijena_po_jed: float,
+        varijabilni_po_jed: float,
+        ciljana_dobit: float,
+    ) -> dict:
+        """Koliko jedinica treba prodati za ciljanu dobit?"""
+        kontribucija = _d(cijena_po_jed) - _d(varijabilni_po_jed)
+        if kontribucija <= 0:
+            return {"error": "Kontribucijska marža ≤ 0"}
+
+        potrebna_kolicina = int(float(
+            (_d(fiksni_troskovi) + _d(ciljana_dobit)) / kontribucija
+        )) + 1
+        prihod = _r2(_d(potrebna_kolicina) * _d(cijena_po_jed))
+
+        return {
+            "ciljana_dobit": _r2(_d(ciljana_dobit)),
+            "potrebna_kolicina": potrebna_kolicina,
+            "potrebni_prihod": prihod,
+            "ukupni_troskovi": _r2(_d(fiksni_troskovi) + _d(potrebna_kolicina) * _d(varijabilni_po_jed)),
+        }
+
+
+class VarianceAnalysis:
+    """Analiza odstupanja — budžet vs. ostvarenje."""
+
+    @staticmethod
+    def analyze(budget: dict, actual: dict) -> dict:
+        """Usporedi planirane i ostvarene vrijednosti."""
+        result = {}
+        for key in budget:
+            if key in actual and isinstance(budget[key], (int, float)):
+                plan = _d(budget[key])
+                real = _d(actual[key])
+                diff = _r2(real - plan)
+                pct = _r2((real - plan) / plan * 100) if plan != 0 else 0
+                favorable = diff >= 0 if "prihod" in key.lower() else diff <= 0
+                result[key] = {
+                    "plan": float(plan),
+                    "ostvareno": float(real),
+                    "odstupanje": diff,
+                    "odstupanje_pct": pct,
+                    "ocjena": "✅ povoljno" if favorable else "⚠️ nepovoljno",
+                }
+        return result

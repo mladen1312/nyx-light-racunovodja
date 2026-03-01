@@ -201,3 +201,145 @@ class GFIPrepEngine:
 
     def get_stats(self) -> Dict[str, Any]:
         return {"preparations": self._prep_count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Kontrolni zbrojevi, AOP pozicije, validacija
+# ════════════════════════════════════════════════════════
+
+from decimal import Decimal, ROUND_HALF_UP
+
+def _d(val) -> Decimal:
+    return Decimal(str(val) if val else '0')
+
+def _r2(val) -> float:
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+
+# AOP pozicije za bilancu (GFI-POD)
+AOP_BILANCA = {
+    # AKTIVA
+    "001": "Dugotrajna imovina",
+    "002": "Nematerijalna imovina",
+    "003": "Materijalna imovina",
+    "008": "Financijska imovina",
+    "015": "Kratkotrajna imovina",
+    "016": "Zalihe",
+    "020": "Potraživanja",
+    "030": "Financijska imovina (kratkotrajna)",
+    "036": "Novac u banci i blagajni",
+    "040": "Plaćeni troškovi budućeg razdoblja",
+    "041": "UKUPNA AKTIVA",
+    # PASIVA
+    "042": "Kapital i rezerve",
+    "043": "Temeljni kapital",
+    "050": "Rezerve",
+    "060": "Zadržana dobit/preneseni gubitak",
+    "064": "Dobit/gubitak tekuće godine",
+    "068": "Dugoročne obveze",
+    "080": "Kratkoročne obveze",
+    "090": "Odgođeno plaćanje troškova",
+    "091": "UKUPNA PASIVA",
+}
+
+# AOP pozicije za RDG (Račun dobiti i gubitka)
+AOP_RDG = {
+    "100": "Poslovni prihodi",
+    "101": "Prihodi od prodaje",
+    "109": "Poslovni rashodi",
+    "110": "Materijalni troškovi",
+    "113": "Troškovi osoblja",
+    "119": "Amortizacija",
+    "125": "Ostali troškovi",
+    "130": "Financijski prihodi",
+    "131": "Financijski rashodi",
+    "140": "Ukupni prihodi",
+    "141": "Ukupni rashodi",
+    "145": "Dobit/gubitak prije poreza",
+    "146": "Porez na dobit",
+    "150": "Dobit/gubitak razdoblja",
+}
+
+
+class GFIValidator:
+    """Validacija financijskih izvještaja prema HSFI."""
+
+    @staticmethod
+    def validate_bilanca(data: dict) -> List[dict]:
+        """Provjeri da aktiva = pasiva i ostale kontrole."""
+        errors = []
+
+        aktiva = _d(data.get("ukupna_aktiva", data.get("041", 0)))
+        pasiva = _d(data.get("ukupna_pasiva", data.get("091", 0)))
+
+        # Kontrola 1: Aktiva = Pasiva
+        if abs(aktiva - pasiva) > _d("0.01"):
+            errors.append({
+                "check": "aktiva_pasiva",
+                "msg": f"Aktiva ({aktiva}) ≠ Pasiva ({pasiva}), razlika: {aktiva - pasiva}",
+                "severity": "error",
+            })
+
+        # Kontrola 2: Ukupna aktiva = dugotrajna + kratkotrajna + AVR
+        dugotrajna = _d(data.get("001", 0))
+        kratkotrajna = _d(data.get("015", 0))
+        avr = _d(data.get("040", 0))
+        calc_aktiva = dugotrajna + kratkotrajna + avr
+        if abs(aktiva - calc_aktiva) > _d("0.01") and aktiva > 0:
+            errors.append({
+                "check": "aktiva_sastavnice",
+                "msg": f"Aktiva ({aktiva}) ≠ DI({dugotrajna})+KI({kratkotrajna})+AVR({avr})={calc_aktiva}",
+                "severity": "warning",
+            })
+
+        # Kontrola 3: Pasiva = kapital + dugoročne + kratkoročne + PVR
+        kapital = _d(data.get("042", 0))
+        dugorocne = _d(data.get("068", 0))
+        kratkorocne = _d(data.get("080", 0))
+        pvr = _d(data.get("090", 0))
+        calc_pasiva = kapital + dugorocne + kratkorocne + pvr
+        if abs(pasiva - calc_pasiva) > _d("0.01") and pasiva > 0:
+            errors.append({
+                "check": "pasiva_sastavnice",
+                "msg": f"Pasiva ({pasiva}) ≠ K({kapital})+DO({dugorocne})+KO({kratkorocne})+PVR({pvr})={calc_pasiva}",
+                "severity": "warning",
+            })
+
+        # Kontrola 4: Dobit u bilanci = dobit u RDG
+        dobit_bilanca = _d(data.get("064", 0))
+        dobit_rdg = _d(data.get("150", data.get("rdg_dobit", 0)))
+        if abs(dobit_bilanca - dobit_rdg) > _d("0.01") and dobit_rdg != 0:
+            errors.append({
+                "check": "dobit_konzistencija",
+                "msg": f"Dobit u bilanci ({dobit_bilanca}) ≠ dobit u RDG ({dobit_rdg})",
+                "severity": "error",
+            })
+
+        return errors
+
+    @staticmethod
+    def validate_rdg(data: dict) -> List[dict]:
+        """Kontrola RDG-a."""
+        errors = []
+
+        prihodi = _d(data.get("140", 0))
+        rashodi = _d(data.get("141", 0))
+        dobit = _d(data.get("145", 0))
+
+        if abs(dobit - (prihodi - rashodi)) > _d("0.01") and prihodi > 0:
+            errors.append({
+                "check": "rdg_dobit",
+                "msg": f"Dobit ({dobit}) ≠ Prihodi({prihodi}) - Rashodi({rashodi}) = {prihodi-rashodi}",
+                "severity": "error",
+            })
+
+        porez = _d(data.get("146", 0))
+        neto = _d(data.get("150", 0))
+        if abs(neto - (dobit - porez)) > _d("0.01") and dobit > 0:
+            errors.append({
+                "check": "rdg_neto",
+                "msg": f"Neto dobit ({neto}) ≠ Dobit({dobit}) - Porez({porez}) = {dobit-porez}",
+                "severity": "error",
+            })
+
+        return errors

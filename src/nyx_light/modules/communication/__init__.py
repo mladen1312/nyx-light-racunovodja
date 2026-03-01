@@ -13,12 +13,28 @@ Podržani izvještaji:
   - KPI dashboard (trendovi, upozorenja)
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("nyx_light.modules.communication")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 
 @dataclass
@@ -234,3 +250,131 @@ class ReportExplainer:
 
     def get_stats(self):
         return {"explanations_generated": self._explanations_count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Email templating za IOS, opomene, obavijesti klijentima
+# ════════════════════════════════════════════════════════
+
+from datetime import date
+
+
+PREDLOSCI = {
+    "ios_slanje": {
+        "subject": "IOS Usklađivanje stanja na dan {datum}",
+        "body": (
+            "Poštovani,\n\n"
+            "U privitku dostavljamo Izvod Otvorenih Stavki (IOS) na dan {datum}.\n"
+            "Molimo Vas da nam u roku od {rok} dana potvrdite stanje ili dostavite "
+            "Vaš IOS radi usklađivanja.\n\n"
+            "Naše potraživanje prema Vama iznosi: {iznos_potrazivanja} EUR\n"
+            "Naša obveza prema Vama iznosi: {iznos_obveza} EUR\n\n"
+            "S poštovanjem,\n{potpis}"
+        ),
+    },
+    "opomena_1": {
+        "subject": "Opomena za dospjele fakture — {partner_naziv}",
+        "body": (
+            "Poštovani,\n\n"
+            "Ovim putem Vas ljubazno podsjećamo da imate neplaćene fakture:\n\n"
+            "{fakture_lista}\n"
+            "Ukupan dospjeli iznos: {ukupno_dospjelo} EUR\n\n"
+            "Molimo uplatu u najkraćem mogućem roku na IBAN: {iban}\n"
+            "Poziv na broj: {poziv_na_broj}\n\n"
+            "S poštovanjem,\n{potpis}"
+        ),
+    },
+    "opomena_2": {
+        "subject": "DRUGA OPOMENA — Dospjele fakture {partner_naziv}",
+        "body": (
+            "Poštovani,\n\n"
+            "Unatoč našoj prvoj opomeni od {datum_prve_opomene}, "
+            "do danas nismo primili uplatu za sljedeće fakture:\n\n"
+            "{fakture_lista}\n"
+            "Ukupan dospjeli iznos: {ukupno_dospjelo} EUR\n"
+            "Kašnjenje: {dani_kasnjenja} dana\n\n"
+            "Ukoliko ne primimo uplatu u roku od 8 dana, "
+            "bit ćemo prisiljeni pokrenuti postupak prisilne naplate.\n\n"
+            "S poštovanjem,\n{potpis}"
+        ),
+    },
+    "zatezna_kamata": {
+        "subject": "Obračun zatezne kamate — {partner_naziv}",
+        "body": (
+            "Poštovani,\n\n"
+            "Obavještavamo Vas da Vam je temeljem čl. 29. Zakona o obveznim odnosima "
+            "obračunata zatezna kamata na nepravodobno plaćene obveze:\n\n"
+            "Osnovni dug: {osnovni_dug} EUR\n"
+            "Stopa zatezne kamate: {stopa}% godišnje\n"
+            "Razdoblje: {od_datuma} — {do_datuma} ({dani} dana)\n"
+            "Zatezna kamata: {kamata} EUR\n"
+            "Ukupno za uplatu: {ukupno} EUR\n\n"
+            "S poštovanjem,\n{potpis}"
+        ),
+    },
+}
+
+
+class CommunicationEngine:
+    """Generiranje poslovne korespondencije za računovodstvo."""
+
+    def __init__(self):
+        self._count = 0
+
+    def generate_email(self, template_key: str, params: dict) -> dict:
+        """Generiraj email iz predloška."""
+        tpl = PREDLOSCI.get(template_key)
+        if not tpl:
+            return {"error": f"Nepoznat predložak: {template_key}", "available": list(PREDLOSCI.keys())}
+
+        try:
+            subject = tpl["subject"].format(**params)
+            body = tpl["body"].format(**params)
+        except KeyError as e:
+            return {"error": f"Nedostaje parametar: {e}", "required_params": self._extract_params(tpl)}
+
+        self._count += 1
+        return {
+            "subject": subject,
+            "body": body,
+            "template": template_key,
+            "requires_review": True,
+            "note": "Pregledajte sadržaj prije slanja.",
+        }
+
+    def izracun_zatezne_kamate(
+        self,
+        iznos_duga: float,
+        datum_dospijeca: str,
+        datum_obracuna: str = "",
+        stopa_godisnja: float = 5.75,  # HNB referentna + 3pp (2026.)
+    ) -> dict:
+        """Izračun zatezne kamate prema ZOO čl. 29."""
+        try:
+            dospijece = date.fromisoformat(datum_dospijeca)
+            obracun = date.fromisoformat(datum_obracuna) if datum_obracuna else date.today()
+        except ValueError:
+            return {"error": "Neispravan format datuma (YYYY-MM-DD)"}
+
+        dani = max(0, (obracun - dospijece).days)
+        kamata = _r2(_d(iznos_duga) * _d(stopa_godisnja) / _d(100) * _d(dani) / _d(365))
+
+        return {
+            "osnovni_dug": _r2(_d(iznos_duga)),
+            "datum_dospijeca": datum_dospijeca,
+            "datum_obracuna": obracun.isoformat(),
+            "dani_kasnjenja": dani,
+            "stopa_godisnja_pct": stopa_godisnja,
+            "zatezna_kamata": kamata,
+            "ukupno_za_uplatu": _r2(_d(iznos_duga) + _d(kamata)),
+            "zakonski_temelj": "ZOO čl. 29, stopa: ESB referentna + 3pp",
+        }
+
+    @staticmethod
+    def _extract_params(tpl: dict) -> list:
+        import re
+        all_text = tpl.get("subject", "") + tpl.get("body", "")
+        return sorted(set(re.findall(r'\{(\w+)\}', all_text)))
+
+    def get_stats(self):
+        return {"emails_generated": self._count}

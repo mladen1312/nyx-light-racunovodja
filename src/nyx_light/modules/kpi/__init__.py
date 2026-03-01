@@ -11,11 +11,27 @@ Izračun ključnih financijskih pokazatelja za klijente:
 Podaci se izvlače iz bilance (BIL) i RDG-a klijenta.
 """
 
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger("nyx_light.modules.kpi")
+
+
+def _d(val) -> "Decimal":
+    """Convert to Decimal for precise money calculations."""
+    if isinstance(val, Decimal):
+        return val
+    if isinstance(val, float):
+        return Decimal(str(val))
+    return Decimal(str(val) if val else '0')
+
+
+def _r2(val) -> float:
+    """Round Decimal to 2 places and return float for JSON compat."""
+    return float(Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
 
 
 @dataclass
@@ -190,3 +206,85 @@ class KPIDashboard:
 
     def get_stats(self):
         return {"kpi_calculations": self._calc_count}
+
+
+# ════════════════════════════════════════════════════════
+# PROŠIRENJA: Financijski KPI-evi, trend analiza, benchmarking
+# ════════════════════════════════════════════════════════
+
+class FinancijskiKPI:
+    """Izračun ključnih financijskih pokazatelja."""
+
+    @staticmethod
+    def profitabilnost(
+        ukupni_prihodi: float,
+        ukupni_rashodi: float,
+        neto_dobit: float,
+        vlastiti_kapital: float = 0,
+        ukupna_imovina: float = 0,
+    ) -> dict:
+        """Pokazatelji profitabilnosti."""
+        prihodi = _d(ukupni_prihodi) if ukupni_prihodi else _d(1)
+        return {
+            "bruto_marza_pct": _r2((_d(ukupni_prihodi) - _d(ukupni_rashodi)) / prihodi * 100),
+            "neto_marza_pct": _r2(_d(neto_dobit) / prihodi * 100),
+            "ROE_pct": _r2(_d(neto_dobit) / _d(vlastiti_kapital or 1) * 100),
+            "ROA_pct": _r2(_d(neto_dobit) / _d(ukupna_imovina or 1) * 100),
+            "EBITDA": _r2(_d(ukupni_prihodi) - _d(ukupni_rashodi)),
+        }
+
+    @staticmethod
+    def zaduzenost(
+        ukupne_obveze: float,
+        ukupna_imovina: float,
+        vlastiti_kapital: float,
+        kratkorocne_obveze: float = 0,
+    ) -> dict:
+        """Pokazatelji zaduženosti."""
+        return {
+            "koef_zaduzenosti": _r2(_d(ukupne_obveze) / _d(ukupna_imovina or 1)),
+            "koef_financiranja": _r2(_d(ukupne_obveze) / _d(vlastiti_kapital or 1)),
+            "koef_pokrica": _r2(_d(vlastiti_kapital) / _d(ukupna_imovina or 1)),
+            "preporuke": {
+                "zaduzenost": "< 0.5 (idealno)",
+                "financiranje": "< 1.0",
+                "pokrice": "> 0.5",
+            },
+        }
+
+    @staticmethod
+    def aktivnost(
+        prihodi_od_prodaje: float,
+        ukupna_imovina: float,
+        kratkotrajna_imovina: float,
+        potrazivanja: float,
+        zalihe: float,
+        dani: int = 365,
+    ) -> dict:
+        """Pokazatelji aktivnosti (obrtaja)."""
+        prihodi = _d(prihodi_od_prodaje) if prihodi_od_prodaje else _d(1)
+        return {
+            "obrtaj_ukupne_imovine": _r2(prihodi / _d(ukupna_imovina or 1)),
+            "obrtaj_kratkotrajne": _r2(prihodi / _d(kratkotrajna_imovina or 1)),
+            "dani_naplate": int(float(_d(potrazivanja) / (prihodi / _d(dani)))) if float(prihodi) > 0 else 0,
+            "dani_zaliha": int(float(_d(zalihe) / (prihodi / _d(dani)))) if float(prihodi) > 0 else 0,
+        }
+
+    @staticmethod
+    def trend(periodi: list) -> dict:
+        """Trend analiza — usporedi više perioda."""
+        if len(periodi) < 2:
+            return {"error": "Potrebna minimalno 2 perioda za trend"}
+
+        trends = {}
+        for key in periodi[0]:
+            if key == "period" or not isinstance(periodi[0][key], (int, float)):
+                continue
+            values = [p.get(key, 0) for p in periodi]
+            first = values[0] or 1
+            trends[key] = {
+                "values": values,
+                "promjena_pct": _r2((_d(values[-1]) - _d(values[0])) / _d(first) * 100),
+                "trend": "↑" if values[-1] > values[0] else ("↓" if values[-1] < values[0] else "→"),
+            }
+        return trends
